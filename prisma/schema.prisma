@@ -1,0 +1,194 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum Role {
+  MANAGER
+  DRIVER
+}
+
+enum ShipmentStatus {
+  EN_PREPARACION
+  LISTO_PARA_ENVIAR
+  ASIGNADO_CHOFER
+  EN_CAMINO
+  ENTREGADO
+  INCIDENCIA
+  CANCELADO
+}
+
+enum ShipmentSource {
+  TIENDANUBE
+  REMITO
+  MANUAL
+}
+
+enum IncidentType {
+  DESTINATARIO_AUSENTE
+  DIRECCION_INCORRECTA
+  PAQUETE_RECHAZADO
+  ACCESO_IMPOSIBLE
+  OTRO
+}
+
+// ─── Models ───────────────────────────────────────────────────────────────────
+
+model User {
+  id           String  @id @default(cuid())
+  name         String
+  email        String  @unique
+  passwordHash String
+  role         Role
+  phone        String?
+  active       Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relaciones
+  shipmentsCreated      Shipment[]   @relation("CreatedBy")
+  shipmentsAssigned     Shipment[]   @relation("AssignedDriver")
+  events                ShipmentEvent[]
+  routes                Route[]
+  labelBatchesCreated   LabelBatch[] @relation("LabelCreatedBy")
+  labelBatchesConfirmed LabelBatch[] @relation("LabelConfirmedBy")
+
+  @@map("users")
+}
+
+model Shipment {
+  id            String         @id @default(cuid())
+  trackingToken String         @unique @default(uuid())
+  orderNumber   String?
+  source        ShipmentSource
+  status        ShipmentStatus @default(EN_PREPARACION)
+
+  // Destinatario
+  recipientName  String
+  recipientPhone String?
+  addressLine    String
+  addressExtra   String? // Piso, depto, entre calles, etc.
+  city           String
+  province       String
+  postalCode     String?
+
+  // Geolocalización (se geocodifica al asignar ruta)
+  lat Float?
+  lng Float?
+
+  // Contenido y notas
+  products String?
+  notes    String?
+
+  // Datos brutos del PDF para auditoría y re-extracción futura
+  rawPdfData Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relaciones
+  createdBy        User    @relation("CreatedBy", fields: [createdById], references: [id])
+  createdById      String
+  assignedDriver   User?   @relation("AssignedDriver", fields: [assignedDriverId], references: [id])
+  assignedDriverId String?
+
+  events          ShipmentEvent[]
+  routeItems      RouteItem[]
+  labelBatchItems LabelBatchItem[]
+
+  @@index([status])
+  @@index([trackingToken])
+  @@index([assignedDriverId])
+  @@index([createdAt])
+  @@map("shipments")
+}
+
+// Historial inmutable de cambios de estado — solo INSERT, nunca UPDATE ni DELETE
+model ShipmentEvent {
+  id           String         @id @default(cuid())
+  shipment     Shipment       @relation(fields: [shipmentId], references: [id])
+  shipmentId   String
+  fromStatus   ShipmentStatus?
+  toStatus     ShipmentStatus
+  notes        String?
+  incidentType IncidentType?
+
+  createdBy   User   @relation(fields: [createdById], references: [id])
+  createdById String
+
+  createdAt DateTime @default(now())
+
+  @@index([shipmentId])
+  @@index([createdAt])
+  @@map("shipment_events")
+}
+
+model Route {
+  id          String    @id @default(cuid())
+  driver      User      @relation(fields: [driverId], references: [id])
+  driverId    String
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items RouteItem[]
+
+  @@index([driverId])
+  @@map("routes")
+}
+
+model RouteItem {
+  id            String    @id @default(cuid())
+  route         Route     @relation(fields: [routeId], references: [id])
+  routeId       String
+  shipment      Shipment  @relation(fields: [shipmentId], references: [id])
+  shipmentId    String
+  deliveryOrder Int // Orden dentro del recorrido
+  segment       Int       @default(1) // Tramo para el deep link de Google Maps (máx 8 por tramo)
+  deliveredAt   DateTime?
+
+  @@unique([routeId, shipmentId])
+  @@index([routeId])
+  @@map("route_items")
+}
+
+// Registro de auditoría para impresión de etiquetas
+model LabelBatch {
+  id          String    @id @default(cuid())
+  generatedAt DateTime  @default(now())
+  confirmedAt DateTime? // null = PDF generado pero impresión no confirmada
+
+  createdBy     User    @relation("LabelCreatedBy", fields: [createdById], references: [id])
+  createdById   String
+  confirmedBy   User?   @relation("LabelConfirmedBy", fields: [confirmedById], references: [id])
+  confirmedById String?
+
+  items LabelBatchItem[]
+
+  @@index([createdById])
+  @@map("label_batches")
+}
+
+model LabelBatchItem {
+  id         String     @id @default(cuid())
+  batch      LabelBatch @relation(fields: [batchId], references: [id])
+  batchId    String
+  shipment   Shipment   @relation(fields: [shipmentId], references: [id])
+  shipmentId String
+
+  @@unique([batchId, shipmentId])
+  @@map("label_batch_items")
+}

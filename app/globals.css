@@ -1,0 +1,96 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 249 250 251; /* gray-50 */
+    --foreground: 17 24 39;    /* gray-900 */
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-gray-50 text-gray-900;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Scroll suave */
+  html {
+    scroll-behavior: smooth;
+  }
+
+  /* Foco visible accesible */
+  :focus-visible {
+    @apply outline-none ring-2 ring-blue-500 ring-offset-2;
+  }
+
+  /* Área segura para dispositivos con notch/Dynamic Island */
+  .safe-area-pb {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  /* Animaciones de entrada para el toast */
+  @keyframes slide-in-from-bottom-full {
+    from {
+      transform: translateY(calc(100% + 1rem));
+    }
+    to {
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes fade-out-80 {
+    from { opacity: 1; }
+    to { opacity: 0.2; }
+  }
+
+  .animate-in {
+    animation-duration: 150ms;
+    animation-fill-mode: both;
+  }
+
+  .animate-out {
+    animation-duration: 150ms;
+    animation-fill-mode: both;
+  }
+
+  .fade-in-0 { animation-name: fade-in; }
+  .fade-out-80 { animation-name: fade-out-80; }
+  .zoom-in-95 { animation-name: zoom-in; }
+  .slide-in-from-bottom-full { animation-name: slide-in-from-bottom-full; }
+
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @keyframes zoom-in {
+    from { transform: scale(0.95); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+  }
+}
+
+@layer utilities {
+  /* Utilidad para truncar texto en múltiples líneas */
+  .line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .line-clamp-3 {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}
