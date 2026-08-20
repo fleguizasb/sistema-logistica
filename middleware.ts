@@ -1,6 +1,6 @@
 /**
  * Middleware de protección de rutas por rol.
- * Usa getToken (solo JWT) en lugar de auth() completo para mantenerse liviano.
+ * Usa auth.config.ts (sin Prisma/bcrypt) para mantenerse dentro del límite Edge.
  *
  * Rutas públicas:  /login, /tracking/*
  * Rutas MANAGER:  /dashboard, /shipments, /labels, /drivers, /incidents
@@ -8,9 +8,11 @@
  * Raíz (/):       redirige al panel correspondiente según rol
  */
 
-import { getToken } from "next-auth/jwt";
+import NextAuth from "next-auth";
+import { authConfig } from "@/auth.config";
 import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
+
+const { auth } = NextAuth(authConfig);
 
 const PUBLIC_PATHS = ["/login", "/tracking"];
 const MANAGER_PATHS = ["/dashboard", "/shipments", "/labels", "/drivers", "/incidents"];
@@ -26,13 +28,11 @@ function isDriverPath(pathname: string): boolean {
   return DRIVER_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"));
 }
 
-export async function middleware(req: NextRequest) {
+export default auth((req) => {
   const { pathname } = req.nextUrl;
-
-  // Lee solo el JWT de la cookie — sin Prisma, sin base de datos
-  const token = await getToken({ req, secret: process.env.AUTH_SECRET });
-  const isLoggedIn = !!token;
-  const role = token?.role as string | undefined;
+  const session = req.auth;
+  const isLoggedIn = !!session?.user;
+  const role = (session?.user as { role?: string } | null)?.role;
 
   // Rutas públicas: siempre accesibles
   if (isPublicPath(pathname)) {
@@ -67,7 +67,7 @@ export async function middleware(req: NextRequest) {
   }
 
   return NextResponse.next();
-}
+});
 
 export const config = {
   matcher: [
