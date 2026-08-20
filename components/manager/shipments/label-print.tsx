@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useTransition } from "react";
 import { confirmLabels } from "@/lib/actions/labels";
 import { Printer, CheckCircle2, ArrowLeft, Loader2 } from "lucide-react";
 import Link from "next/link";
@@ -25,74 +25,83 @@ interface LabelPrintProps {
   shipments: ShipmentForLabel[];
 }
 
-// ─── Generar HTML puro para impresión ─────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function esc(s: string | null | undefined): string {
+  if (!s) return "";
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+// ─── HTML para la ventana de impresión ───────────────────────────────────────
 
 function buildPrintHtml(shipments: ShipmentForLabel[]): string {
   const labelsHtml = shipments
     .map((s) => {
-      const tracking = `/seguimiento/${s.trackingToken}`;
-      const extra = s.addressExtra
-        ? `<p style="font-size:9pt;color:#444;margin:0 0 1.5mm 0">${s.addressExtra}</p>`
-        : "";
-      const phone = s.recipientPhone
-        ? `<div style="margin-bottom:4mm">
-            <p style="font-size:7pt;color:#555;text-transform:uppercase;letter-spacing:.5px;margin:0 0 1mm 0">TELÉFONO</p>
-            <p style="font-size:10pt;margin:0">${s.recipientPhone}</p>
-           </div>`
-        : "";
       const order = s.orderNumber
-        ? `<span style="font-size:8pt;color:#555">#${s.orderNumber}</span>`
+        ? `<span style="font-size:7pt;color:#555">#${esc(s.orderNumber)}</span>`
         : "";
-      const products = s.products
-        ? `<div style="margin-bottom:4mm">
-            <p style="font-size:7pt;color:#555;text-transform:uppercase;letter-spacing:.5px;margin:0 0 1mm 0">PRODUCTOS</p>
-            <p style="font-size:8pt;color:#333;margin:0;line-height:1.4;white-space:pre-line">${s.products}</p>
-           </div>`
+
+      const extra = s.addressExtra
+        ? `<p style="font-size:8pt;color:#444;margin:0 0 1mm">${esc(s.addressExtra)}</p>`
+        : "";
+
+      const phone = s.recipientPhone
+        ? `<p style="font-size:7pt;color:#555;text-transform:uppercase;letter-spacing:.5px;margin:0 0 .5mm">TEL</p>
+           <p style="font-size:9pt;margin:0 0 2.5mm">${esc(s.recipientPhone)}</p>`
+        : "";
+
+      // Limitar productos a 3 líneas para que entren en 10x10
+      const rawProducts = s.products ?? "";
+      const productLines = rawProducts
+        .split("\n")
+        .map((l) => l.trim())
+        .filter(Boolean)
+        .slice(0, 4)
+        .join("\n");
+
+      const products = productLines
+        ? `<p style="font-size:7pt;color:#555;text-transform:uppercase;letter-spacing:.5px;margin:0 0 .5mm">PRODUCTOS</p>
+           <p style="font-size:8pt;color:#222;margin:0 0 2.5mm;line-height:1.3;white-space:pre-line">${esc(productLines)}</p>`
         : "";
 
       return `
-        <div style="
-          width:100mm; height:150mm; padding:6mm;
-          display:flex; flex-direction:column;
-          font-family:Arial,sans-serif;
-          box-sizing:border-box; overflow:hidden;
-          background:white;
-          page-break-after:always; break-after:page;
-        ">
-          <!-- Header -->
-          <div style="border-bottom:1.5px solid #000;padding-bottom:3mm;margin-bottom:4mm;display:flex;justify-content:space-between;align-items:center">
-            <span style="font-size:10pt;font-weight:bold;letter-spacing:.5px">SISTEMA LOGÍSTICO</span>
-            ${order}
-          </div>
+<div style="
+  width:100mm;height:100mm;padding:5mm;
+  display:flex;flex-direction:column;
+  font-family:Arial,Helvetica,sans-serif;
+  box-sizing:border-box;overflow:hidden;
+  background:white;
+  page-break-after:always;break-after:page;
+">
+  <!-- Header -->
+  <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1.5px solid #000;padding-bottom:2mm;margin-bottom:3mm">
+    <span style="font-size:8pt;font-weight:bold;letter-spacing:.5px">SISTEMA LOGÍSTICO</span>
+    ${order}
+  </div>
 
-          <!-- Destinatario -->
-          <div style="margin-bottom:4mm">
-            <p style="font-size:7pt;color:#555;text-transform:uppercase;letter-spacing:.5px;margin:0 0 1mm 0">DESTINATARIO</p>
-            <p style="font-size:15pt;font-weight:bold;line-height:1.2;margin:0">${s.recipientName}</p>
-          </div>
+  <!-- Destinatario -->
+  <p style="font-size:13pt;font-weight:bold;line-height:1.2;margin:0 0 2mm">${esc(s.recipientName)}</p>
 
-          <!-- Dirección -->
-          <div style="margin-bottom:4mm">
-            <p style="font-size:7pt;color:#555;text-transform:uppercase;letter-spacing:.5px;margin:0 0 1mm 0">DIRECCIÓN DE ENTREGA</p>
-            <p style="font-size:11pt;font-weight:600;margin:0 0 1mm 0;line-height:1.3">${s.addressLine}</p>
-            ${extra}
-            <p style="font-size:10pt;margin:0">${s.city}, ${s.province}${s.postalCode ? ` (CP ${s.postalCode})` : ""}</p>
-          </div>
+  <!-- Dirección -->
+  <p style="font-size:9pt;font-weight:600;margin:0 0 .5mm;line-height:1.3">${esc(s.addressLine)}</p>
+  ${extra}
+  <p style="font-size:8.5pt;margin:0 0 2.5mm">${esc(s.city)}, ${esc(s.province)}${s.postalCode ? ` CP ${esc(s.postalCode)}` : ""}</p>
 
-          ${phone}
-          ${products}
+  ${phone}
+  ${products}
 
-          <!-- Separador -->
-          <div style="border-top:1px dashed #ccc;margin:auto 0 4mm 0"></div>
-
-          <!-- Tracking -->
-          <div>
-            <p style="font-size:7pt;color:#555;text-transform:uppercase;letter-spacing:.5px;margin:0 0 1.5mm 0">CÓDIGO DE SEGUIMIENTO</p>
-            <p style="font-size:8pt;word-break:break-all;color:#333;margin:0;line-height:1.4">${tracking}</p>
-          </div>
-        </div>`;
+  <!-- Separador y tracking -->
+  <div style="margin-top:auto;border-top:1px dashed #bbb;padding-top:2mm">
+    <p style="font-size:6.5pt;color:#555;text-transform:uppercase;letter-spacing:.5px;margin:0 0 .5mm">SEGUIMIENTO</p>
+    <p style="font-size:7pt;word-break:break-all;color:#333;margin:0;line-height:1.3">/seguimiento/${esc(s.trackingToken)}</p>
+  </div>
+</div>`;
     })
-    .join("");
+    .join("\n");
 
   return `<!DOCTYPE html>
 <html lang="es">
@@ -100,9 +109,9 @@ function buildPrintHtml(shipments: ShipmentForLabel[]): string {
   <meta charset="utf-8">
   <title>Etiquetas</title>
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: white; }
-    @page { size: 100mm 150mm; margin: 0; }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { background:white; }
+    @page { size:100mm 100mm; margin:0; }
   </style>
 </head>
 <body>${labelsHtml}</body>
@@ -124,16 +133,8 @@ export function LabelPrint({ shipments }: LabelPrintProps) {
     win.document.open();
     win.document.write(html);
     win.document.close();
-    // Esperar a que cargue antes de imprimir
-    win.addEventListener("load", () => {
-      setTimeout(() => {
-        win.print();
-      }, 300);
-    });
-    // Fallback por si el evento load ya ocurrió
-    setTimeout(() => {
-      if (!win.closed) win.print();
-    }, 600);
+    win.addEventListener("load", () => setTimeout(() => win.print(), 250));
+    setTimeout(() => { if (!win.closed) win.print(); }, 700);
   }
 
   function handleConfirm() {
@@ -144,7 +145,7 @@ export function LabelPrint({ shipments }: LabelPrintProps) {
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
-      {/* ── Barra de control ── */}
+      {/* Barra de control */}
       <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3">
           <Link
@@ -156,9 +157,7 @@ export function LabelPrint({ shipments }: LabelPrintProps) {
           </Link>
           <span className="text-gray-300">|</span>
           <p className="text-sm font-medium text-gray-900">
-            {shipments.length === 1
-              ? "1 etiqueta"
-              : `${shipments.length} etiquetas`}
+            {shipments.length === 1 ? "1 etiqueta" : `${shipments.length} etiquetas`}
           </p>
         </div>
 
@@ -185,14 +184,14 @@ export function LabelPrint({ shipments }: LabelPrintProps) {
         </div>
       </div>
 
-      {/* ── Nota ── */}
       <div className="bg-blue-50 border-b border-blue-100 px-6 py-2">
         <p className="text-xs text-blue-700">
-          Hacé clic en <strong>Imprimir</strong> para abrir el diálogo. Después de imprimir, confirmá para mover los envíos a <strong>Listo para enviar</strong>.
+          Hacé clic en <strong>Imprimir</strong> → se abre una ventana con las etiquetas → imprimí →
+          volvé acá y hacé clic en <strong>Confirmar impresión</strong>.
         </p>
       </div>
 
-      {/* ── Previsualización en pantalla ── */}
+      {/* Previsualización */}
       <div className="flex-1 overflow-auto bg-gray-100 p-6">
         <div className="space-y-4 max-w-fit mx-auto">
           {shipments.map((s) => (
@@ -204,98 +203,87 @@ export function LabelPrint({ shipments }: LabelPrintProps) {
   );
 }
 
-// ─── Previsualización (solo pantalla) ─────────────────────────────────────────
+// ─── Previsualización en pantalla (10×10cm) ───────────────────────────────────
 
 function LabelPreview({ shipment }: { shipment: ShipmentForLabel }) {
+  const productLines = (shipment.products ?? "")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .slice(0, 4)
+    .join("\n");
+
   return (
     <div
-      className="bg-white shadow-md"
+      className="bg-white shadow-md overflow-hidden"
       style={{
         width: "100mm",
-        minHeight: "150mm",
-        padding: "6mm",
+        height: "100mm",
+        padding: "5mm",
         display: "flex",
         flexDirection: "column",
-        fontFamily: "Arial, sans-serif",
-        fontSize: "10pt",
+        fontFamily: "Arial, Helvetica, sans-serif",
         boxSizing: "border-box",
       }}
     >
       {/* Header */}
       <div
         style={{
-          borderBottom: "1.5px solid #000",
-          paddingBottom: "3mm",
-          marginBottom: "4mm",
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
+          borderBottom: "1.5px solid #000",
+          paddingBottom: "2mm",
+          marginBottom: "3mm",
         }}
       >
-        <span style={{ fontSize: "10pt", fontWeight: "bold" }}>SISTEMA LOGÍSTICO</span>
+        <span style={{ fontSize: "8pt", fontWeight: "bold" }}>SISTEMA LOGÍSTICO</span>
         {shipment.orderNumber && (
-          <span style={{ fontSize: "8pt", color: "#555" }}>#{shipment.orderNumber}</span>
+          <span style={{ fontSize: "7pt", color: "#555" }}>#{shipment.orderNumber}</span>
         )}
       </div>
 
-      {/* Destinatario */}
-      <div style={{ marginBottom: "4mm" }}>
-        <p style={{ fontSize: "7pt", color: "#555", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "1mm" }}>
-          DESTINATARIO
-        </p>
-        <p style={{ fontSize: "15pt", fontWeight: "bold", lineHeight: "1.2", margin: 0 }}>
-          {shipment.recipientName}
-        </p>
-      </div>
+      {/* Nombre */}
+      <p style={{ fontSize: "13pt", fontWeight: "bold", lineHeight: 1.2, margin: "0 0 2mm" }}>
+        {shipment.recipientName}
+      </p>
 
       {/* Dirección */}
-      <div style={{ marginBottom: "4mm" }}>
-        <p style={{ fontSize: "7pt", color: "#555", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "1mm" }}>
-          DIRECCIÓN DE ENTREGA
-        </p>
-        <p style={{ fontSize: "11pt", fontWeight: 600, margin: "0 0 1mm", lineHeight: "1.3" }}>
-          {shipment.addressLine}
-        </p>
-        {shipment.addressExtra && (
-          <p style={{ fontSize: "9pt", color: "#444", margin: "0 0 1mm" }}>{shipment.addressExtra}</p>
-        )}
-        <p style={{ fontSize: "10pt", margin: 0 }}>
-          {shipment.city}, {shipment.province}
-          {shipment.postalCode ? ` (CP ${shipment.postalCode})` : ""}
-        </p>
-      </div>
+      <p style={{ fontSize: "9pt", fontWeight: 600, margin: "0 0 0.5mm", lineHeight: 1.3 }}>
+        {shipment.addressLine}
+      </p>
+      {shipment.addressExtra && (
+        <p style={{ fontSize: "8pt", color: "#444", margin: "0 0 0.5mm" }}>{shipment.addressExtra}</p>
+      )}
+      <p style={{ fontSize: "8.5pt", margin: "0 0 2.5mm" }}>
+        {shipment.city}, {shipment.province}
+        {shipment.postalCode ? ` CP ${shipment.postalCode}` : ""}
+      </p>
 
       {/* Teléfono */}
       {shipment.recipientPhone && (
-        <div style={{ marginBottom: "4mm" }}>
-          <p style={{ fontSize: "7pt", color: "#555", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "1mm" }}>
-            TELÉFONO
-          </p>
-          <p style={{ fontSize: "10pt", margin: 0 }}>{shipment.recipientPhone}</p>
-        </div>
+        <>
+          <p style={{ fontSize: "7pt", color: "#555", textTransform: "uppercase", letterSpacing: "0.5px", margin: "0 0 0.5mm" }}>TEL</p>
+          <p style={{ fontSize: "9pt", margin: "0 0 2.5mm" }}>{shipment.recipientPhone}</p>
+        </>
       )}
 
       {/* Productos */}
-      {shipment.products && (
-        <div style={{ marginBottom: "4mm" }}>
-          <p style={{ fontSize: "7pt", color: "#555", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "1mm" }}>
-            PRODUCTOS
+      {productLines && (
+        <>
+          <p style={{ fontSize: "7pt", color: "#555", textTransform: "uppercase", letterSpacing: "0.5px", margin: "0 0 0.5mm" }}>PRODUCTOS</p>
+          <p style={{ fontSize: "8pt", color: "#222", margin: "0 0 2.5mm", lineHeight: 1.3, whiteSpace: "pre-line" }}>
+            {productLines}
           </p>
-          <p style={{ fontSize: "8pt", color: "#333", margin: 0, lineHeight: "1.4", whiteSpace: "pre-line" }}>
-            {shipment.products}
-          </p>
-        </div>
+        </>
       )}
 
-      {/* Separador */}
-      <div style={{ borderTop: "1px dashed #ccc", margin: "auto 0 4mm 0" }} />
-
       {/* Tracking */}
-      <div>
-        <p style={{ fontSize: "7pt", color: "#555", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "1.5mm" }}>
-          CÓDIGO DE SEGUIMIENTO
+      <div style={{ marginTop: "auto", borderTop: "1px dashed #bbb", paddingTop: "2mm" }}>
+        <p style={{ fontSize: "6.5pt", color: "#555", textTransform: "uppercase", letterSpacing: "0.5px", margin: "0 0 0.5mm" }}>
+          SEGUIMIENTO
         </p>
-        <p style={{ fontSize: "8pt", wordBreak: "break-all", color: "#333", margin: 0, lineHeight: "1.4" }}>
+        <p style={{ fontSize: "7pt", wordBreak: "break-all", color: "#333", margin: 0, lineHeight: 1.3 }}>
           /seguimiento/{shipment.trackingToken}
         </p>
       </div>
