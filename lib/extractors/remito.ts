@@ -1,44 +1,40 @@
 /**
  * Extractor de remitos (formato Contabilium/SleepBox).
  *
- * Campos clave en el texto:
- *   Razón social: NOMBRE COMPLETO
- *   Domicilio: CALLE N° XXX  - CP XXXX. Tel: XXXXXXXXXX
- *   Ubicación: CIUDAD, Provincia
+ * IMPORTANTE: pdf-parse genera texto donde varios campos quedan pegados sin salto
+ * de línea. Ejemplos reales:
+ *   "Ubicación: BERAZATEGUI, Buenos AiresDNI: 20227173387"
+ *   "Condición de venta: MercadoPagoCondición de IVA: Consumidor final"
+ *   "PLUMON 260X280 KING BLANCO1"   ← número pegado al final
+ *   "1Set toallon y toalla - ..."    ← número pegado al inicio
  *
- * Los productos aparecen repetidos por el layout multi-columna del PDF;
- * se deduplicarán preservando el orden.
+ * La estrategia es trabajar sobre el texto crudo con regex en lugar de
+ * asumir saltos de línea limpios entre campos.
  */
 
 import type { ExtractedShipment } from "./types";
 
 export function extractRemito(text: string): ExtractedShipment[] {
-  const lines = text
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean);
-
   // ── Nombre del destinatario ───────────────────────────────────────────────────
-  const razonLine = lines.find((l) => l.startsWith("Razón social:"));
-  const recipientName = razonLine?.replace("Razón social:", "").trim() ?? "";
+  const razonMatch = text.match(/Razón social:\s*([^\n]+?)(?=\n|DNI:|Domicilio:|$)/i);
+  const recipientName = razonMatch ? razonMatch[1].trim() : "";
   if (!recipientName) return [];
 
   // ── Domicilio → dirección, CP, teléfono ──────────────────────────────────────
-  const domicilioLine = lines.find((l) => l.startsWith("Domicilio:"));
+  // Formato: "Domicilio: CALLE 3 - N° 294  - CP 1884. Tel: 1161578472"
+  const domMatch = text.match(/Domicilio:\s*([^\n]+?)(?=\n|Ubicación:|DNI:|$)/i);
   let addressLine = "";
   let postalCode: string | undefined;
   let recipientPhone: string | undefined;
 
-  if (domicilioLine) {
-    const domText = domicilioLine.replace("Domicilio:", "").trim();
+  if (domMatch) {
+    const domText = domMatch[1].trim();
 
-    // CP: "CP XXXX"
-    const cpMatch = domText.match(/CP\s*(\d+)/i);
+    const cpMatch = domText.match(/CP\s*(\d{3,5})/i);
     if (cpMatch) postalCode = cpMatch[1];
 
-    // Tel: ". Tel: XXXXXXXXXX" — puede venir sin el punto
     const telMatch = domText.match(/\.?\s*Tel:\s*([+\d\s]+)/i);
-    if (telMatch) recipientPhone = telMatch[1].trim();
+    if (telMatch) recipientPhone = telMatch[1].trim().replace(/\s+/g, "");
 
     // Dirección: todo antes de "- CP" o ". Tel:"
     addressLine = domText
@@ -48,77 +44,65 @@ export function extractRemito(text: string): ExtractedShipment[] {
   }
 
   // ── Ciudad y Provincia ────────────────────────────────────────────────────────
-  const ubicacionLine = lines.find((l) => l.startsWith("Ubicación:"));
+  // Puede aparecer como "Ubicación: BERAZATEGUI, Buenos AiresDNI: ..."
+  const ubicMatch = text.match(/Ubicación:\s*([^\n]+?)(?=DNI:|Condición|$)/i);
   let city = "";
   let province = "";
 
-  if (ubicacionLine) {
-    // La línea puede tener más columnas a la derecha (ej. "DNI: XXX")
-    const ubicText = ubicacionLine
-      .replace("Ubicación:", "")
-      .split(/\s{2,}/)[0] // cortar columnas adicionales
-      .trim();
-
+  if (ubicMatch) {
+    const ubicText = ubicMatch[1].trim();
     const parts = ubicText.split(",").map((p) => p.trim());
     city = parts[0] ?? "";
     province = parts[1] ?? "";
   }
 
-  // ── Número de documento (orden) ───────────────────────────────────────────────
+  // ── Número de documento ───────────────────────────────────────────────────────
   const nroMatch = text.match(/Nº:\s*([\d-]+)/);
   const orderNumber = nroMatch ? nroMatch[1] : undefined;
 
-  // ── Productos — deduplicar (el PDF los repite por layout multi-columna) ────────
-  const skuPattern = /^[A-Z]{2,}-[\w-]+$/;
-  const skipPatterns = [
-    /^\d+$/,
-    /^VPS:/,
-    /^Cantidad/,
-    /^Condición/,
-    /^DNI:/,
-    /^Ubicación:/,
-    /^Domicilio:/,
-    /^Razón social:/,
-    /^Sleep/,
-    /^JOSE LEON/,
-    /^Au Cam/,
-    /^Tel\./,
-    /^Responsable/,
-    /^R$/,
-    /^Cod\./,
-    /^Remito/,
-    /^Original/,
-    /^Nº:/,
-    /^Fecha:/,
-    /^CUIT:/,
-    /^Ingresos/,
-    /^Inicio/,
-    /^Recibí/,
-    /^Powered/,
-    /^Cantidad\s+Código/,
-  ];
+  // ── Productos ─────────────────────────────────────────────────────────────────
+  // Buscar el índice donde empieza la sección de productos.
+  // "Condición de IVA:" puede estar pegado a otra línea.
+  const condIvaIdx = text.indexOf("Condición de IVA:");
+  const cantTotalIdx = text.indexOf("Cantidad total:");
 
-  const seen = new Set<string>();
-  const productList: string[] = [];
-  let pastHeader = false;
+  let products: string | undefined;
 
-  for (const line of lines) {
-    // Empezar a capturar productos después de la línea de condición de IVA
-    if (line.startsWith("Condición de IVA:")) {
-      pastHeader = true;
-      continue;
+  if (condIvaIdx !== -1) {
+    // Tomar el texto desde el final de la línea de "Condición de IVA:..."
+    const afterCondIva = text.slice(condIvaIdx);
+    // Saltar hasta el primer salto de línea (termina la línea mezclada)
+    const firstNewline = afterCondIva.indexOf("\n");
+    const productSection = firstNewline !== -1
+      ? afterCondIva.slice(firstNewline)
+      : afterCondIva;
+
+    const endIdx = cantTotalIdx !== -1 ? cantTotalIdx - condIvaIdx - firstNewline : undefined;
+    const productText = endIdx ? productSection.slice(0, endIdx) : productSection;
+
+    // SKU pattern: letras mayúsculas, guion, alfanumérico
+    const skuPattern = /^[A-Z]{2,}[-_][\w-]+$/;
+
+    const seen = new Set<string>();
+    const productList: string[] = [];
+
+    for (let line of productText.split("\n")) {
+      // Limpiar números pegados al inicio y al final
+      line = line.replace(/^\d+/, "").replace(/\d+$/, "").trim();
+
+      if (!line || line.length < 4) continue;
+      if (skuPattern.test(line)) continue;
+      if (/^\d+$/.test(line)) continue;
+      if (/^(VPS:|Cantidad|Condición|DNI:|Ubicación:|Domicilio:|Razón|Sleep|JOSE LEON|Au Cam|Tel\.|Responsable|^R$|Cod\.|Remito|Original|Nº:|Fecha:|CUIT:|Ingresos|Inicio|Recibí|Powered)/i.test(line)) continue;
+
+      if (!seen.has(line)) {
+        seen.add(line);
+        productList.push(line);
+      }
     }
-    if (!pastHeader) continue;
-    if (line.startsWith("Cantidad total:")) break;
 
-    // Ignorar SKUs y patrones a saltar
-    if (skuPattern.test(line)) continue;
-    if (skipPatterns.some((p) => p.test(line))) continue;
-    if (line.length < 4) continue;
-
-    if (!seen.has(line)) {
-      seen.add(line);
-      productList.push(line);
+    if (productList.length > 0) {
+      products = productList.join(", ");
     }
   }
 
@@ -131,7 +115,7 @@ export function extractRemito(text: string): ExtractedShipment[] {
       city,
       province,
       postalCode,
-      products: productList.join(", ") || undefined,
+      products,
       source: "REMITO",
     },
   ];
