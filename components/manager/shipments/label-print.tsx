@@ -106,22 +106,29 @@ export function LabelPrint({ shipments }: LabelPrintProps) {
         </p>
       </div>
 
-      {/* ── Etiquetas ── */}
-      <div className="label-page bg-gray-100 min-h-screen p-6 no-print-bg">
+      {/* ── Etiquetas (pantalla) ── */}
+      <div className="no-print bg-gray-100 min-h-screen p-6">
         <div className="space-y-4 max-w-fit mx-auto">
           {shipments.map((s) => (
-            <Label key={s.id} shipment={s} />
+            <Label key={s.id} shipment={s} screen />
           ))}
         </div>
       </div>
 
+      {/* ── Etiquetas (impresión) — fuera del flujo de pantalla ── */}
+      <div id="print-labels">
+        {shipments.map((s) => (
+          <Label key={s.id} shipment={s} />
+        ))}
+      </div>
+
       <style>{`
-        @media screen {
-          .no-print-bg { background: #f3f4f6; }
-        }
+        #print-labels { display: none; }
         @media print {
-          .no-print-bg { background: white; padding: 0; }
-          .space-y-4 > * + * { margin-top: 0 !important; }
+          #print-labels { display: block; }
+          .no-print { display: none !important; }
+          body { margin: 0; padding: 0; background: white; }
+          @page { size: 100mm 150mm; margin: 0; }
         }
       `}</style>
     </>
@@ -130,23 +137,25 @@ export function LabelPrint({ shipments }: LabelPrintProps) {
 
 // ─── Etiqueta individual ──────────────────────────────────────────────────────
 
-function Label({ shipment }: { shipment: ShipmentForLabel }) {
-  const trackingUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/seguimiento/${shipment.trackingToken}`;
+function Label({ shipment, screen }: { shipment: ShipmentForLabel; screen?: boolean }) {
+  const trackingUrl = `/seguimiento/${shipment.trackingToken}`;
 
   return (
     <div
-      className="bg-white shadow-md"
+      className={screen ? "bg-white shadow-md" : ""}
       style={{
         width: "100mm",
         height: "150mm",
         padding: "6mm",
         display: "flex",
         flexDirection: "column",
-        gap: "0",
         fontFamily: "Arial, sans-serif",
         pageBreakAfter: "always",
+        breakAfter: "page",
         boxSizing: "border-box",
         overflow: "hidden",
+        margin: 0,
+        background: "white",
       }}
     >
       {/* Header */}
