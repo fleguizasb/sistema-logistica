@@ -1,85 +1,138 @@
 /**
- * Extractor para remitos (documentos de envío genéricos).
+ * Extractor de remitos (formato Contabilium/SleepBox).
  *
- * Los remitos tienen formatos variados entre empresas. Este extractor
- * implementa heurísticas generales que funcionan para los formatos más comunes.
+ * Campos clave en el texto:
+ *   Razón social: NOMBRE COMPLETO
+ *   Domicilio: CALLE N° XXX  - CP XXXX. Tel: XXXXXXXXXX
+ *   Ubicación: CIUDAD, Provincia
  *
- * Si una empresa tiene un formato de remito muy específico, se puede crear
- * un extractor dedicado (ej: RemitoOCAExtractor, RemitoAndreaniExtractor).
+ * Los productos aparecen repetidos por el layout multi-columna del PDF;
+ * se deduplicarán preservando el orden.
  */
 
-import type { PdfExtractor, ExtractedShipment } from "./types";
+import type { ExtractedShipment } from "./types";
 
-export class RemitoExtractor implements PdfExtractor {
-  readonly name = "REMITO";
+export function extractRemito(text: string): ExtractedShipment[] {
+  const lines = text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
 
-  detect(rawText: string): boolean {
-    const normalized = rawText.toLowerCase();
-    return (
-      normalized.includes("remito") ||
-      normalized.includes("orden de despacho") ||
-      normalized.includes("guía de envío") ||
-      normalized.includes("nota de entrega") ||
-      // Número de remito: "R-0001-00012345" o "N° 0001-00012345"
-      /r[-\s]?\d{4}[-\s]?\d{8}/i.test(rawText)
-    );
+  // ── Nombre del destinatario ───────────────────────────────────────────────────
+  const razonLine = lines.find((l) => l.startsWith("Razón social:"));
+  const recipientName = razonLine?.replace("Razón social:", "").trim() ?? "";
+  if (!recipientName) return [];
+
+  // ── Domicilio → dirección, CP, teléfono ──────────────────────────────────────
+  const domicilioLine = lines.find((l) => l.startsWith("Domicilio:"));
+  let addressLine = "";
+  let postalCode: string | undefined;
+  let recipientPhone: string | undefined;
+
+  if (domicilioLine) {
+    const domText = domicilioLine.replace("Domicilio:", "").trim();
+
+    // CP: "CP XXXX"
+    const cpMatch = domText.match(/CP\s*(\d+)/i);
+    if (cpMatch) postalCode = cpMatch[1];
+
+    // Tel: ". Tel: XXXXXXXXXX" — puede venir sin el punto
+    const telMatch = domText.match(/\.?\s*Tel:\s*([+\d\s]+)/i);
+    if (telMatch) recipientPhone = telMatch[1].trim();
+
+    // Dirección: todo antes de "- CP" o ". Tel:"
+    addressLine = domText
+      .split(/\s*-\s*CP\s*\d+/i)[0]
+      .split(/\s*\.?\s*Tel:/i)[0]
+      .trim();
   }
 
-  extract(rawText: string): ExtractedShipment {
-    const result: ExtractedShipment = {};
+  // ── Ciudad y Provincia ────────────────────────────────────────────────────────
+  const ubicacionLine = lines.find((l) => l.startsWith("Ubicación:"));
+  let city = "";
+  let province = "";
 
-    // Número de remito
-    const remitoMatch = rawText.match(/(?:remito|nro?\.?|n[°º]\.?)[:\s]*([R\d][\d\-]{4,20})/i);
-    if (remitoMatch) result.orderNumber = remitoMatch[1].trim();
+  if (ubicacionLine) {
+    // La línea puede tener más columnas a la derecha (ej. "DNI: XXX")
+    const ubicText = ubicacionLine
+      .replace("Ubicación:", "")
+      .split(/\s{2,}/)[0] // cortar columnas adicionales
+      .trim();
 
-    // Destinatario (varios formatos posibles)
-    const nameMatch = rawText.match(
-      /(?:destinatario|cliente|señor(?:es)?|sr\.?|sra\.?|a\s+cargo\s+de)[:\s]+([A-ZÁÉÍÓÚÑa-záéíóúñ\s]{3,60}?)(?:\n|cuit|dni|tel|cel|dir|$)/i
-    );
-    if (nameMatch) result.recipientName = nameMatch[1].trim();
-
-    // Teléfono
-    const phoneMatch = rawText.match(
-      /(?:tel[eé]fono|tel|cel|cel\.?|te)[:\.\s]*([+\d\s\(\)\-]{8,20})/i
-    );
-    if (phoneMatch) result.recipientPhone = phoneMatch[1].trim();
-
-    // Domicilio de entrega
-    const addressMatch = rawText.match(
-      /(?:domicilio|direcci[oó]n|entrega|despachar\s+a)[:\s]+([^\n]{5,100})/i
-    );
-    if (addressMatch) result.addressLine = addressMatch[1].trim();
-
-    // Ciudad
-    const cityMatch = rawText.match(
-      /(?:ciudad|localidad|partido|pdo\.?)[:\s]*([^\n,]{2,50})/i
-    );
-    if (cityMatch) result.city = cityMatch[1].trim();
-
-    // Provincia
-    const provinceMatch = rawText.match(
-      /(?:provincia|prov\.?)[:\s]*([^\n,]{2,30})/i
-    );
-    if (provinceMatch) result.province = provinceMatch[1].trim();
-
-    // CP
-    const cpMatch = rawText.match(
-      /(?:cp|c\.p\.|código\s*postal)[:\.\s]*([A-Z]?\d{4}[A-Z]{0,3})/i
-    );
-    if (cpMatch) result.postalCode = cpMatch[1].trim();
-
-    // Descripción de artículos
-    const itemsMatch = rawText.match(
-      /(?:descripci[oó]n|detalle|mercader[ií]a|art[ií]culos?)[:\s\n]+([\s\S]{5,400}?)(?:\n\n|total|bultos|peso|$)/i
-    );
-    if (itemsMatch) result.products = itemsMatch[1].trim().replace(/\n/g, " | ");
-
-    // Observaciones
-    const notesMatch = rawText.match(
-      /(?:observaciones|notas?|instrucciones)[:\s]+([^\n]{3,200})/i
-    );
-    if (notesMatch) result.notes = notesMatch[1].trim();
-
-    return result;
+    const parts = ubicText.split(",").map((p) => p.trim());
+    city = parts[0] ?? "";
+    province = parts[1] ?? "";
   }
+
+  // ── Número de documento (orden) ───────────────────────────────────────────────
+  const nroMatch = text.match(/Nº:\s*([\d-]+)/);
+  const orderNumber = nroMatch ? nroMatch[1] : undefined;
+
+  // ── Productos — deduplicar (el PDF los repite por layout multi-columna) ────────
+  const skuPattern = /^[A-Z]{2,}-[\w-]+$/;
+  const skipPatterns = [
+    /^\d+$/,
+    /^VPS:/,
+    /^Cantidad/,
+    /^Condición/,
+    /^DNI:/,
+    /^Ubicación:/,
+    /^Domicilio:/,
+    /^Razón social:/,
+    /^Sleep/,
+    /^JOSE LEON/,
+    /^Au Cam/,
+    /^Tel\./,
+    /^Responsable/,
+    /^R$/,
+    /^Cod\./,
+    /^Remito/,
+    /^Original/,
+    /^Nº:/,
+    /^Fecha:/,
+    /^CUIT:/,
+    /^Ingresos/,
+    /^Inicio/,
+    /^Recibí/,
+    /^Powered/,
+    /^Cantidad\s+Código/,
+  ];
+
+  const seen = new Set<string>();
+  const productList: string[] = [];
+  let pastHeader = false;
+
+  for (const line of lines) {
+    // Empezar a capturar productos después de la línea de condición de IVA
+    if (line.startsWith("Condición de IVA:")) {
+      pastHeader = true;
+      continue;
+    }
+    if (!pastHeader) continue;
+    if (line.startsWith("Cantidad total:")) break;
+
+    // Ignorar SKUs y patrones a saltar
+    if (skuPattern.test(line)) continue;
+    if (skipPatterns.some((p) => p.test(line))) continue;
+    if (line.length < 4) continue;
+
+    if (!seen.has(line)) {
+      seen.add(line);
+      productList.push(line);
+    }
+  }
+
+  return [
+    {
+      orderNumber,
+      recipientName,
+      recipientPhone,
+      addressLine,
+      city,
+      province,
+      postalCode,
+      products: productList.join(", ") || undefined,
+      source: "REMITO",
+    },
+  ];
 }

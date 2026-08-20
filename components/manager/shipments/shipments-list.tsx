@@ -1,11 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Package, Plus, Search, ChevronRight } from "lucide-react";
+import { Package, Plus, Search, ChevronRight, FileUp } from "lucide-react";
 import { StatusBadge } from "@/components/ui/badge";
-import { STATUS_LABEL_MAP } from "@/lib/constants/shipment-status";
 import { ShipmentStatus } from "@prisma/client";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -64,9 +63,9 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
     <div className="flex-1 flex flex-col min-h-0">
       {/* Barra superior */}
       <div className="p-6 pb-0 space-y-4">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
           {/* Buscador */}
-          <div className="relative flex-1 max-w-sm">
+          <div className="relative flex-1 min-w-[200px] max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
               type="text"
@@ -77,14 +76,23 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
             />
           </div>
 
-          {/* Botón nuevo */}
-          <Link
-            href="/shipments/new"
-            className="flex items-center gap-2 bg-blue-600 text-white text-sm font-medium px-4 h-9 rounded-md hover:bg-blue-700 transition-colors shrink-0"
-          >
-            <Plus className="w-4 h-4" />
-            Nuevo envío
-          </Link>
+          {/* Botones de acción */}
+          <div className="flex gap-2 shrink-0">
+            <Link
+              href="/shipments/upload"
+              className="flex items-center gap-2 bg-white border border-gray-200 text-gray-700 text-sm font-medium px-3 h-9 rounded-md hover:bg-gray-50 transition-colors"
+            >
+              <FileUp className="w-4 h-4" />
+              <span className="hidden sm:inline">Subir PDF</span>
+            </Link>
+            <Link
+              href="/shipments/new"
+              className="flex items-center gap-2 bg-blue-600 text-white text-sm font-medium px-4 h-9 rounded-md hover:bg-blue-700 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              <span className="hidden sm:inline">Nuevo</span>
+            </Link>
+          </div>
         </div>
 
         {/* Tabs de estado */}
@@ -110,25 +118,48 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
         {filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <Package className="w-12 h-12 text-gray-200 mb-3" />
-            <p className="text-sm text-gray-500">No hay envíos{search ? " que coincidan" : ""} en esta categoría.</p>
+            <p className="text-sm text-gray-500">
+              No hay envíos{search ? " que coincidan" : ""} en esta categoría.
+            </p>
             {!search && (
-              <Link href="/shipments/new" className="mt-3 text-sm text-blue-600 hover:underline font-medium">
-                Crear primer envío →
-              </Link>
+              <div className="flex gap-3 mt-4">
+                <Link
+                  href="/shipments/upload"
+                  className="text-sm text-blue-600 hover:underline font-medium"
+                >
+                  Subir PDF →
+                </Link>
+                <Link
+                  href="/shipments/new"
+                  className="text-sm text-gray-500 hover:underline"
+                >
+                  Carga manual
+                </Link>
+              </div>
             )}
           </div>
         ) : (
           <>
-            {/* Tabla (desktop) */}
+            {/* Tabla desktop */}
             <div className="hidden md:block bg-white rounded-xl border border-gray-200 overflow-hidden">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-100 bg-gray-50">
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Destinatario</th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Dirección</th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Estado</th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Chofer</th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Fecha</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                      Destinatario
+                    </th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                      Dirección
+                    </th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                      Estado
+                    </th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                      Chofer
+                    </th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                      Fecha
+                    </th>
                     <th className="w-8" />
                   </tr>
                 </thead>
@@ -140,20 +171,28 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
                       onClick={() => router.push(`/shipments/${s.id}`)}
                     >
                       <td className="px-4 py-3">
-                        <p className="font-medium text-gray-900">{s.recipientName}</p>
+                        <p className="font-medium text-gray-900">
+                          {s.recipientName}
+                        </p>
                         {s.orderNumber && (
-                          <p className="text-xs text-gray-400">#{s.orderNumber}</p>
+                          <p className="text-xs text-gray-400">
+                            #{s.orderNumber}
+                          </p>
                         )}
                       </td>
                       <td className="px-4 py-3 text-gray-600">
                         <p>{s.addressLine}</p>
-                        <p className="text-xs text-gray-400">{s.city}, {s.province}</p>
+                        <p className="text-xs text-gray-400">
+                          {s.city}, {s.province}
+                        </p>
                       </td>
                       <td className="px-4 py-3">
                         <StatusBadge status={s.status} />
                       </td>
                       <td className="px-4 py-3 text-gray-600">
-                        {s.assignedDriver?.name ?? <span className="text-gray-300">—</span>}
+                        {s.assignedDriver?.name ?? (
+                          <span className="text-gray-300">—</span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-gray-400 text-xs">
                         {new Date(s.createdAt).toLocaleDateString("es-AR")}
@@ -167,7 +206,7 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
               </table>
             </div>
 
-            {/* Tarjetas (mobile) */}
+            {/* Tarjetas mobile */}
             <div className="md:hidden space-y-2">
               {filtered.map((s) => (
                 <Link
@@ -176,10 +215,12 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
                   className="flex items-center justify-between bg-white border border-gray-200 rounded-xl p-4 hover:border-blue-200 transition-colors"
                 >
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <p className="font-medium text-gray-900 truncate">{s.recipientName}</p>
-                    </div>
-                    <p className="text-xs text-gray-500 truncate">{s.addressLine}, {s.city}</p>
+                    <p className="font-medium text-gray-900 truncate">
+                      {s.recipientName}
+                    </p>
+                    <p className="text-xs text-gray-500 truncate">
+                      {s.addressLine}, {s.city}
+                    </p>
                     <div className="mt-2">
                       <StatusBadge status={s.status} />
                     </div>

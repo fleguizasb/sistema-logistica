@@ -1,77 +1,165 @@
 /**
- * Extractor para etiquetas de envío de Tienda Nube.
+ * Extractor de etiquetas de Tienda Nube.
+ * El PDF puede contener múltiples órdenes en una sola página.
  *
- * Los PDFs de Tienda Nube tienen un formato consistente con campos
- * bien identificables. Este extractor usa regex calibradas para ese formato.
- *
- * IMPORTANTE: Los patrones deben ser validados contra PDFs reales de Tienda Nube
- * y ajustados si el formato cambia. Ver tests en __tests__/extractors/tiendanube.test.ts
+ * Estructura de cada orden en el texto extraído:
+ *   Orden #XXXX - Paquete #X
+ *   Realizada el DD/MM/YYYY
+ *   Producto
+ *   [nombre producto]
+ *   SKU: XXX
+ *   ...
+ *   Subtotal (N unidades)
+ *   Medio de pago: ...
+ *   Envío: ...
+ *   [Notas del cliente:\n texto...]
+ *   Enviar a:
+ *   [nombre destinatario]
+ *   [Cant. / números de cantidad — artefactos del layout PDF]
+ *   Teléfono: +XXXXXXXXX
+ *   DNI: XXXXXXXX
+ *   [dirección línea 1]
+ *   [dirección extra opcional]
+ *   Ciudad, Provincia, CodigoPostal
+ *   Argentina
  */
 
-import type { PdfExtractor, ExtractedShipment } from "./types";
+import type { ExtractedShipment } from "./types";
 
-export class TiendaNubeExtractor implements PdfExtractor {
-  readonly name = "TIENDANUBE";
+export function extractTiendaNube(text: string): ExtractedShipment[] {
+  // Normalizar saltos de página
+  const normalized = text.replace(/\x0c/g, "\n");
 
-  /**
-   * Detecta si el PDF es una etiqueta de Tienda Nube.
-   * Busca patrones de texto característicos del formato.
-   */
-  detect(rawText: string): boolean {
-    const normalized = rawText.toLowerCase();
-    return (
-      normalized.includes("tiendanube") ||
-      normalized.includes("tienda nube") ||
-      normalized.includes("nube shops") ||
-      // El número de pedido de Tienda Nube suele tener el formato #XXXXX
-      /pedido\s*#\d{4,}/i.test(rawText)
-    );
+  // Dividir en bloques por orden
+  const rawBlocks = normalized.split(/(?=Orden #\d+)/);
+
+  const results: ExtractedShipment[] = [];
+
+  for (const block of rawBlocks) {
+    if (!block.trim() || !block.match(/Orden #\d+/)) continue;
+    try {
+      const s = parseOrderBlock(block);
+      if (s) results.push(s);
+    } catch (e) {
+      console.error("Error parsing TiendaNube block:", e);
+    }
   }
 
-  extract(rawText: string): ExtractedShipment {
-    const result: ExtractedShipment = {};
+  return results;
+}
 
-    // Número de pedido: "#12345" o "Pedido #12345"
-    const orderMatch = rawText.match(/(?:pedido\s*)?#(\d{4,})/i);
-    if (orderMatch) result.orderNumber = orderMatch[1];
+function parseOrderBlock(block: string): ExtractedShipment | null {
+  // ── Número de orden ──────────────────────────────────────────────────────────
+  const orderMatch = block.match(/Orden #(\d+)/);
+  if (!orderMatch) return null;
+  const orderNumber = orderMatch[1];
 
-    // Nombre del destinatario: suele estar después de "Destinatario:" o "Para:"
-    const nameMatch = rawText.match(
-      /(?:destinatario|para|nombre)[:\s]+([A-ZÁÉÍÓÚÑa-záéíóúñ\s]{3,50}?)(?:\n|telefono|tel|cel|email|$)/i
-    );
-    if (nameMatch) result.recipientName = nameMatch[1].trim();
+  // ── Productos (antes de Subtotal) ─────────────────────────────────────────────
+  let products: string | undefined;
+  const productoMatch = block.match(/Producto\n([\s\S]*?)Subtotal/);
+  if (productoMatch) {
+    const productLines = productoMatch[1]
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l && !l.startsWith("SKU:") && !l.match(/^\d+$/) && l !== "Cant.");
+    if (productLines.length) products = productLines.join(", ");
+  }
 
-    // Teléfono: formatos argentinos típicos
-    const phoneMatch = rawText.match(
-      /(?:tel[eé]fono|tel|cel)[:\s]*([+\d\s\(\)\-]{8,20})/i
-    );
-    if (phoneMatch) result.recipientPhone = phoneMatch[1].trim().replace(/\s+/g, " ");
+  // ── Notas del cliente ─────────────────────────────────────────────────────────
+  let notes: string | undefined;
+  const notasMatch = block.match(/Notas del cliente:\n([\s\S]*?)(?:\nEnviar a:)/);
+  if (notasMatch) {
+    const n = notasMatch[1].trim();
+    if (n) notes = n;
+  }
 
-    // Dirección: calle y número
-    const addressMatch = rawText.match(
-      /(?:direcci[oó]n|domicilio|enviar\s+a)[:\s]+([^\n]{5,80})/i
-    );
-    if (addressMatch) result.addressLine = addressMatch[1].trim();
+  // ── Sección "Enviar a:" ───────────────────────────────────────────────────────
+  const enviarIdx = block.indexOf("Enviar a:");
+  if (enviarIdx === -1) return null;
 
-    // Ciudad y provincia (suelen estar en la misma línea "Ciudad, Provincia")
-    const locationMatch = rawText.match(
-      /(?:ciudad|localidad)[:\s]*([^\n,]{2,50})(?:[,\n]\s*)?([^\n]{2,50})?/i
-    );
-    if (locationMatch) {
-      result.city = locationMatch[1]?.trim();
-      if (locationMatch[2]) result.province = locationMatch[2]?.trim();
+  const afterEnviar = block.slice(enviarIdx + "Enviar a:".length);
+
+  // Todas las líneas no vacías de la sección de entrega
+  const deliveryLines = afterEnviar
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l);
+
+  // ── Nombre del destinatario ───────────────────────────────────────────────────
+  // Primer token que no sea número ni "Cant."
+  let recipientName = "";
+  let nameIdx = 0;
+  for (let i = 0; i < deliveryLines.length; i++) {
+    const line = deliveryLines[i];
+    if (line !== "Cant." && !line.match(/^\d+$/)) {
+      recipientName = line;
+      nameIdx = i;
+      break;
+    }
+  }
+  if (!recipientName) return null;
+
+  // ── Teléfono ──────────────────────────────────────────────────────────────────
+  let recipientPhone: string | undefined;
+  let phoneIdx = -1;
+  for (let i = nameIdx + 1; i < deliveryLines.length; i++) {
+    if (deliveryLines[i].startsWith("Teléfono:")) {
+      recipientPhone = deliveryLines[i].replace("Teléfono:", "").trim();
+      phoneIdx = i;
+      break;
+    }
+  }
+
+  // ── Dirección ─────────────────────────────────────────────────────────────────
+  const startIdx = phoneIdx !== -1 ? phoneIdx + 1 : nameIdx + 1;
+  const addressLines: string[] = [];
+  let cityLine: string | undefined;
+
+  for (let i = startIdx; i < deliveryLines.length; i++) {
+    const line = deliveryLines[i];
+
+    // Ignorar artefactos del PDF
+    if (line.startsWith("DNI:")) continue;
+    if (line === "Cant." || line.match(/^\d+$/)) continue;
+
+    // Fin de sección
+    if (line === "Argentina") break;
+
+    // Línea de ciudad/provincia/CP: "Ciudad, Provincia, XXXXX"
+    if (line.match(/^.+,\s*.+,\s*\d{3,5}\s*$/)) {
+      cityLine = line;
+      break;
     }
 
-    // Código postal: 4 dígitos (Argentina) o formato CABA (C1234XXX)
-    const cpMatch = rawText.match(/(?:cp|c\.p\.|código\s+postal)[:\s]*([A-Z]?\d{4}[A-Z]{0,3})/i);
-    if (cpMatch) result.postalCode = cpMatch[1].trim();
-
-    // Productos: líneas después de "Productos:" o "Artículos:"
-    const productsMatch = rawText.match(
-      /(?:productos|artículos|items)[:\s\n]+([\s\S]{5,300}?)(?:\n\n|subtotal|total|envío|$)/i
-    );
-    if (productsMatch) result.products = productsMatch[1].trim().replace(/\n/g, ", ");
-
-    return result;
+    addressLines.push(line);
   }
+
+  const addressLine = addressLines[0] || "";
+  const addressExtra = addressLines.slice(1).join(", ") || undefined;
+
+  // ── Parsear ciudad, provincia, CP ────────────────────────────────────────────
+  let city = "";
+  let province = "";
+  let postalCode: string | undefined;
+
+  if (cityLine) {
+    const parts = cityLine.split(",").map((p) => p.trim());
+    city = parts[0] ?? "";
+    province = parts[1] ?? "";
+    postalCode = parts[2] ?? undefined;
+  }
+
+  return {
+    orderNumber,
+    recipientName,
+    recipientPhone,
+    addressLine,
+    addressExtra,
+    city,
+    province,
+    postalCode,
+    products,
+    notes,
+    source: "TIENDANUBE",
+  };
 }
