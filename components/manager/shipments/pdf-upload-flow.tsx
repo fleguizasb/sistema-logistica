@@ -369,15 +369,13 @@ function ShipmentCard({
               onChange={(v) => onChange("province", v)}
               className="sm:col-span-2"
             />
-            {shipment.products && (
-              <Field
-                label="Productos"
-                value={shipment.products}
-                onChange={(v) => onChange("products", v)}
-                multiline
-                className="sm:col-span-2"
-              />
-            )}
+            <Field
+              label="Productos"
+              value={shipment.products ?? ""}
+              onChange={(v) => onChange("products", v)}
+              multiline
+              className="sm:col-span-2"
+            />
             {(shipment.notes ?? "") !== "" && (
               <Field
                 label="Notas del cliente"

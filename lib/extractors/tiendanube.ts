@@ -56,13 +56,14 @@ function parseOrderBlock(block: string): ExtractedShipment | null {
 
   // ── Productos (antes de Subtotal) ─────────────────────────────────────────────
   let products: string | undefined;
-  const productoMatch = block.match(/Productos?\s*\n([\s\S]*?)Subtotal/);
+  // Regex case-insensitive para "Producto/Productos" y "Subtotal/subtotal"
+  const productoMatch = block.match(/Productos?\s*\n([\s\S]*?)(?:subtotal|\bTotal\b)/i);
   if (productoMatch) {
     const productLines = productoMatch[1]
       .split("\n")
       .map((l) => l.trim())
-      // Mantener SKU para identificar el producto; filtrar solo basura del PDF
-      .filter((l) => l && !l.match(/^\d+$/) && l !== "Cant.");
+      // Mantener SKU; filtrar artefactos del PDF (números solos y "Cant.")
+      .filter((l) => l && !l.match(/^\d+(\.\d+)?$/) && l !== "Cant." && !l.startsWith("Medio de pago") && !l.startsWith("Envío:"));
     if (productLines.length) products = productLines.join("\n");
   }
 
