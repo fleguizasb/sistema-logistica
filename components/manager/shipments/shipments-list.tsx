@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Package, Plus, Search, ChevronRight, FileUp, Printer, X } from "lucide-react";
+import { Package, Plus, Search, ChevronRight, FileUp, Printer, X, CheckCircle2, Loader2 } from "lucide-react";
 import { StatusBadge } from "@/components/ui/badge";
 import { ShipmentStatus } from "@prisma/client";
+import { markAsReady } from "@/lib/actions/labels";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -46,6 +47,7 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isPending, startTransition] = useTransition();
 
   const filtered = shipments.filter(
     (s) =>
@@ -325,13 +327,34 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
                 : `${selectedIds.size} envíos seleccionados`}
             </span>
           </div>
-          <button
-            onClick={handleGenerateLabels}
-            className="flex items-center gap-2 bg-blue-600 text-white text-sm font-medium px-4 h-9 rounded-md hover:bg-blue-700 transition-colors"
-          >
-            <Printer className="w-4 h-4" />
-            Generar etiquetas
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                startTransition(async () => {
+                  await markAsReady(Array.from(selectedIds));
+                  clearSelection();
+                  router.refresh();
+                });
+              }}
+              disabled={isPending}
+              className="flex items-center gap-2 bg-white border border-gray-200 text-gray-700 text-sm font-medium px-4 h-9 rounded-md hover:bg-gray-50 disabled:opacity-60 transition-colors"
+            >
+              {isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <CheckCircle2 className="w-4 h-4" />
+              )}
+              Listo para enviar
+            </button>
+            <button
+              onClick={handleGenerateLabels}
+              disabled={isPending}
+              className="flex items-center gap-2 bg-blue-600 text-white text-sm font-medium px-4 h-9 rounded-md hover:bg-blue-700 disabled:opacity-60 transition-colors"
+            >
+              <Printer className="w-4 h-4" />
+              Generar etiquetas
+            </button>
+          </div>
         </div>
       )}
     </div>
