@@ -30,8 +30,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
         const { email, password } = parsed.data;
 
-        // Buscar usuario activo
-        const user = await prisma.user.findUnique({
+        // Buscar usuario
+        const user = await prisma.user.findFirst({
           where: { email, active: true },
           select: {
             id: true,
