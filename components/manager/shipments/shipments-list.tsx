@@ -20,9 +20,23 @@ interface Shipment {
   status: ShipmentStatus;
   orderNumber: string | null;
   source: string;
+  products: string | null;
   createdAt: Date;
   assignedDriver: { id: string; name: string } | null;
   _count: { events: number };
+}
+
+// Extrae solo los códigos SKU del campo products ("Nombre (SKU: CODIGO)")
+function extractSkus(products: string | null): string {
+  if (!products) return "";
+  const matches = products.match(/\(SKU:\s*([^)]+)\)/g) ?? [];
+  if (matches.length > 0) {
+    const skus = matches.map((m) => m.replace(/\(SKU:\s*/, "").replace(/\)$/, "").trim());
+    return [...new Set(skus)].join(", ");
+  }
+  // Fallback: códigos tipo ESB-PLU260280-BL
+  const skuLike = products.match(/\b[A-Z]{2,}-[A-Z0-9_-]+\b/g) ?? [];
+  return [...new Set(skuLike)].join(", ");
 }
 
 interface ShipmentsListProps {
@@ -199,6 +213,9 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
                       Destinatario
                     </th>
                     <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                      SKU
+                    </th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
                       Dirección
                     </th>
                     <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
@@ -238,6 +255,15 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
                           <p className="font-medium text-gray-900">{s.recipientName}</p>
                           {s.orderNumber && (
                             <p className="text-xs text-gray-400">#{s.orderNumber}</p>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          {extractSkus(s.products) ? (
+                            <p className="text-xs font-mono text-gray-600 max-w-[160px] leading-relaxed">
+                              {extractSkus(s.products)}
+                            </p>
+                          ) : (
+                            <span className="text-gray-300">—</span>
                           )}
                         </td>
                         <td className="px-4 py-3 text-gray-600">
