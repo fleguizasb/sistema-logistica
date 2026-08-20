@@ -172,3 +172,21 @@ export async function getDashboardStats() {
 
   return { preparing, inTransit, deliveredToday, incidents, recentShipments };
 }
+
+
+// ─── Eliminar envíos ──────────────────────────────────────────────────────────
+
+export async function deleteShipments(ids: string[]) {
+  const session = await auth();
+  if (!session?.user) throw new Error("No autorizado");
+  if (ids.length === 0) return;
+
+  // Eliminar registros hijos primero para evitar violaciones de FK
+  await prisma.shipmentEvent.deleteMany({ where: { shipmentId: { in: ids } } });
+  await prisma.labelBatchItem.deleteMany({ where: { shipmentId: { in: ids } } });
+
+  await prisma.shipment.deleteMany({ where: { id: { in: ids } } });
+
+  revalidatePath("/shipments");
+  revalidatePath("/dashboard");
+}

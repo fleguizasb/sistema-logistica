@@ -3,10 +3,11 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Package, Plus, Search, ChevronRight, FileUp, Printer, X, CheckCircle2, Loader2 } from "lucide-react";
+import { Package, Plus, Search, ChevronRight, FileUp, Printer, X, CheckCircle2, Loader2, Trash2 } from "lucide-react";
 import { StatusBadge } from "@/components/ui/badge";
 import { ShipmentStatus } from "@prisma/client";
 import { markAsReady } from "@/lib/actions/labels";
+import { deleteShipments } from "@/lib/actions/shipments";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -330,6 +331,22 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
           <div className="flex gap-2">
             <button
               onClick={() => {
+                const n = selectedIds.size;
+                if (!confirm(`¿Eliminar ${n} envío${n > 1 ? "s" : ""}? Esta acción no se puede deshacer.`)) return;
+                startTransition(async () => {
+                  await deleteShipments(Array.from(selectedIds));
+                  clearSelection();
+                  router.refresh();
+                });
+              }}
+              disabled={isPending}
+              className="flex items-center gap-2 bg-white border border-red-200 text-red-600 text-sm font-medium px-4 h-9 rounded-md hover:bg-red-50 disabled:opacity-60 transition-colors"
+            >
+              {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+              Eliminar
+            </button>
+            <button
+              onClick={() => {
                 startTransition(async () => {
                   await markAsReady(Array.from(selectedIds));
                   clearSelection();
@@ -339,11 +356,7 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
               disabled={isPending}
               className="flex items-center gap-2 bg-white border border-gray-200 text-gray-700 text-sm font-medium px-4 h-9 rounded-md hover:bg-gray-50 disabled:opacity-60 transition-colors"
             >
-              {isPending ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <CheckCircle2 className="w-4 h-4" />
-              )}
+              {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
               Listo para enviar
             </button>
             <button
