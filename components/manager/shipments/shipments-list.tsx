@@ -222,17 +222,12 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
                         onClick={() => router.push(`/shipments/${s.id}`)}
                       >
                         {/* Checkbox individual */}
-                        <td
-                          className="pl-4 pr-2 py-3"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleSelect(s.id);
-                          }}
-                        >
+                        <td className="pl-4 pr-2 py-3">
                           <input
                             type="checkbox"
                             checked={isSelected}
                             onChange={() => toggleSelect(s.id)}
+                            onClick={(e) => e.stopPropagation()}
                             className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
                           />
                         </td>
