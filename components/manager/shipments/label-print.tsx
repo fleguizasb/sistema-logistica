@@ -55,18 +55,11 @@ function buildPrintHtml(shipments: ShipmentForLabel[]): string {
         : "";
 
       // Limitar productos a 3 líneas para que entren en 10x10
-      const rawProducts = s.products ?? "";
-      const productLines = rawProducts
-        .split("\n")
-        .map((l) => l.trim())
-        .filter(Boolean)
-        .slice(0, 4)
-        .join("\n");
+      const rawProducts = (s.products ?? "").trim();
+      const productDisplay = rawProducts || "—";
 
-      const products = productLines
-        ? `<p style="font-size:7pt;color:#555;text-transform:uppercase;letter-spacing:.5px;margin:0 0 .5mm">PRODUCTOS</p>
-           <p style="font-size:8pt;color:#222;margin:0 0 2.5mm;line-height:1.3;white-space:pre-line">${esc(productLines)}</p>`
-        : "";
+      const products = `<p style="font-size:7pt;color:#555;text-transform:uppercase;letter-spacing:.5px;margin:0 0 .5mm">PRODUCTOS</p>
+           <p style="font-size:8pt;color:#222;margin:0 0 2.5mm;line-height:1.3;white-space:pre-line">${esc(productDisplay)}</p>`;
 
       return `
 <div style="
@@ -206,13 +199,6 @@ export function LabelPrint({ shipments }: LabelPrintProps) {
 // ─── Previsualización en pantalla (10×10cm) ───────────────────────────────────
 
 function LabelPreview({ shipment }: { shipment: ShipmentForLabel }) {
-  const productLines = (shipment.products ?? "")
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean)
-    .slice(0, 4)
-    .join("\n");
-
   return (
     <div
       className="bg-white shadow-md overflow-hidden"
@@ -268,15 +254,11 @@ function LabelPreview({ shipment }: { shipment: ShipmentForLabel }) {
         </>
       )}
 
-      {/* Productos */}
-      {productLines && (
-        <>
-          <p style={{ fontSize: "7pt", color: "#555", textTransform: "uppercase", letterSpacing: "0.5px", margin: "0 0 0.5mm" }}>PRODUCTOS</p>
-          <p style={{ fontSize: "8pt", color: "#222", margin: "0 0 2.5mm", lineHeight: 1.3, whiteSpace: "pre-line" }}>
-            {productLines}
-          </p>
-        </>
-      )}
+      {/* Productos — siempre visible */}
+      <p style={{ fontSize: "7pt", color: "#555", textTransform: "uppercase", letterSpacing: "0.5px", margin: "0 0 0.5mm" }}>PRODUCTOS</p>
+      <p style={{ fontSize: "8pt", color: "#222", margin: "0 0 2.5mm", lineHeight: 1.3, whiteSpace: "pre-line" }}>
+        {(shipment.products ?? "").trim() || "—"}
+      </p>
 
       {/* Tracking */}
       <div style={{ marginTop: "auto", borderTop: "1px dashed #bbb", paddingTop: "2mm" }}>
