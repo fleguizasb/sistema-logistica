@@ -38,6 +38,12 @@ export async function POST(req: NextRequest) {
 
     const result = detectAndExtract(text);
 
+    // LOG TEMPORAL para debug — ver en Vercel Function Logs
+    console.log("=== PDF RAW TEXT (primeros 3000 chars) ===");
+    console.log(JSON.stringify(text.slice(0, 3000)));
+    console.log("=== RESULT ===");
+    console.log(JSON.stringify(result.shipments.map(s => ({ order: s.orderNumber, products: s.products }))));
+
     if (result.source === "UNKNOWN" || result.shipments.length === 0) {
       return NextResponse.json(
         {

@@ -2,26 +2,10 @@
  * Extractor de etiquetas de Tienda Nube.
  * El PDF puede contener múltiples órdenes en una sola página.
  *
- * Estructura de cada orden en el texto extraído:
- *   Orden #XXXX - Paquete #X
- *   Realizada el DD/MM/YYYY
- *   Producto
- *   [nombre producto]
- *   SKU: XXX
- *   ...
- *   Subtotal (N unidades)
- *   Medio de pago: ...
- *   Envío: ...
- *   [Notas del cliente:\n texto...]
- *   Enviar a:
- *   [nombre destinatario]
- *   [Cant. / números de cantidad — artefactos del layout PDF]
- *   Teléfono: +XXXXXXXXX
- *   DNI: XXXXXXXX
- *   [dirección línea 1]
- *   [dirección extra opcional]
- *   Ciudad, Provincia, CodigoPostal
- *   Argentina
+ * Estrategias de extracción de productos (en orden de prioridad):
+ *   1. Ancla por SKU: busca "SKU:" y toma la línea anterior como nombre
+ *   2. Sección "Producto(s)": captura entre el header y Subtotal/Total
+ *   3. Zona intermedia: todo entre la fecha y "Enviar a:", filtrando basura
  */
 
 import type { ExtractedShipment } from "./types";
@@ -48,24 +32,94 @@ export function extractTiendaNube(text: string): ExtractedShipment[] {
   return results;
 }
 
+function extractProducts(block: string): string | undefined {
+  // Sección antes de "Enviar a:" es donde están los productos
+  const enviarIdx = block.indexOf("Enviar a:");
+  const headerSection = enviarIdx > -1 ? block.slice(0, enviarIdx) : block;
+
+  // ── Estrategia 1: ancla por "SKU:" ─────────────────────────────────────────
+  // TiendaNube siempre incluye "SKU: CODIGO" debajo del nombre del producto
+  const lines = headerSection.split("\n").map((l) => l.trim());
+  const productItems: string[] = [];
+  const seen = new Set<string>();
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    // Buscar líneas que empiezan con "SKU:"
+    if (/^SKU:/i.test(line)) {
+      const sku = line.replace(/^SKU:\s*/i, "").trim();
+      // La línea anterior debería ser el nombre del producto
+      const prevLine = i > 0 ? lines[i - 1].trim() : "";
+      const isProductName =
+        prevLine.length > 2 &&
+        !prevLine.match(/^\d+$/) &&
+        !prevLine.match(/^Cant\.?$/i) &&
+        !prevLine.match(/^Producto/i) &&
+        !prevLine.match(/^Orden/i) &&
+        !prevLine.match(/^Realizada/i);
+
+      const entry = isProductName
+        ? `${prevLine} (SKU: ${sku})`
+        : `SKU: ${sku}`;
+
+      if (!seen.has(entry)) {
+        seen.add(entry);
+        productItems.push(entry);
+      }
+    }
+  }
+
+  if (productItems.length > 0) return productItems.join("\n");
+
+  // ── Estrategia 2: sección "Producto(s)" → Subtotal/Total ───────────────────
+  const productoMatch = headerSection.match(
+    /Productos?\s*\n+([\s\S]*?)(?:subtotal|total de\s+compra|\bTotal\b)/i
+  );
+  if (productoMatch) {
+    const productLines = productoMatch[1]
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(
+        (l) =>
+          l &&
+          !l.match(/^\d+(\.\d+)?$/) &&
+          !/^Cant\.?$/i.test(l) &&
+          !/^Medio de pago/i.test(l) &&
+          !/^Envío:/i.test(l)
+      );
+    if (productLines.length > 0) return productLines.join("\n");
+  }
+
+  // ── Estrategia 3: zona entre fecha y subtotal, filtrar basura ──────────────
+  const fechaMatch = headerSection.match(/Realizada el[^\n]*\n([\s\S]*?)(?:subtotal|medio de pago|envío:)/i);
+  if (fechaMatch) {
+    const zone = fechaMatch[1]
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(
+        (l) =>
+          l.length > 3 &&
+          !l.match(/^\d+(\.\d+)?$/) &&
+          !/^Cant\.?$/i.test(l) &&
+          !/^Producto$/i.test(l) &&
+          !/^Subtotal/i.test(l) &&
+          !/^Medio de pago/i.test(l) &&
+          !/^Envío:/i.test(l)
+      );
+    if (zone.length > 0) return zone.join("\n");
+  }
+
+  return undefined;
+}
+
 function parseOrderBlock(block: string): ExtractedShipment | null {
   // ── Número de orden ──────────────────────────────────────────────────────────
   const orderMatch = block.match(/Orden #(\d+)/);
   if (!orderMatch) return null;
   const orderNumber = orderMatch[1];
 
-  // ── Productos (antes de Subtotal) ─────────────────────────────────────────────
-  let products: string | undefined;
-  // Regex case-insensitive para "Producto/Productos" y "Subtotal/subtotal"
-  const productoMatch = block.match(/Productos?\s*\n([\s\S]*?)(?:subtotal|\bTotal\b)/i);
-  if (productoMatch) {
-    const productLines = productoMatch[1]
-      .split("\n")
-      .map((l) => l.trim())
-      // Mantener SKU; filtrar artefactos del PDF (números solos y "Cant.")
-      .filter((l) => l && !l.match(/^\d+(\.\d+)?$/) && l !== "Cant." && !l.startsWith("Medio de pago") && !l.startsWith("Envío:"));
-    if (productLines.length) products = productLines.join("\n");
-  }
+  // ── Productos ─────────────────────────────────────────────────────────────────
+  const products = extractProducts(block);
 
   // ── Notas del cliente ─────────────────────────────────────────────────────────
   let notes: string | undefined;
