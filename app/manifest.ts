@@ -4,12 +4,12 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "Logística SleepBox",
     short_name: "SleepBox",
-    description: "Gestión de envíos y seguimiento en tiempo real",
+    description: "Sistema de gestión logística SleepBox",
     start_url: "/",
     display: "standalone",
     orientation: "portrait",
     background_color: "#f9fafb",
-    theme_color: "#2563eb",
+    theme_color: "#1e3a6e",
     icons: [
       {
         src: "/icon-192x192.png",
