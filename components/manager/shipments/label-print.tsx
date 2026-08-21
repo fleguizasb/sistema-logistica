@@ -23,6 +23,7 @@ interface ShipmentForLabel {
 
 interface LabelPrintProps {
   shipments: ShipmentForLabel[];
+  initialCopies?: Record<string, number>;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -34,6 +35,15 @@ function esc(s: string | null | undefined): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+/** Extrae solo los códigos SKU del campo products */
+function extractSkusOnly(products: string | null): string {
+  if (!products) return "—";
+  const matches = [...products.matchAll(/\(SKU:\s*([^)]+)\)/gi)];
+  if (matches.length > 0) return matches.map((m) => m[1].trim()).join("\n");
+  // Si no hay formato SKU, mostrar el texto completo como fallback
+  return products.trim() || "—";
 }
 
 function buildLabelHtml(s: ShipmentForLabel): string {
@@ -50,11 +60,11 @@ function buildLabelHtml(s: ShipmentForLabel): string {
        <p style="font-size:9pt;margin:0 0 2.5mm">${esc(s.recipientPhone)}</p>`
     : "";
 
-  const rawProducts = (s.products ?? "").trim();
-  const productDisplay = rawProducts || "—";
-
-  const products = `<p style="font-size:7pt;color:#555;text-transform:uppercase;letter-spacing:.5px;margin:0 0 .5mm">PRODUCTOS</p>
-       <p style="font-size:8pt;color:#222;margin:0 0 2.5mm;line-height:1.3;white-space:pre-line">${esc(productDisplay)}</p>`;
+  const skus = extractSkusOnly(s.products);
+  const skuBlock = `
+    <p style="font-size:7pt;color:#555;text-transform:uppercase;letter-spacing:.5px;margin:0 0 .5mm">SKU</p>
+    <p style="font-size:9pt;font-weight:bold;color:#222;margin:0 0 2.5mm;line-height:1.4;white-space:pre-line">${esc(skus)}</p>
+  `;
 
   return `
 <div style="
@@ -77,7 +87,7 @@ function buildLabelHtml(s: ShipmentForLabel): string {
   ${extra}
   <p style="font-size:8.5pt;margin:0 0 2.5mm">${esc(s.city)}, ${esc(s.province)}${s.postalCode ? ` CP ${esc(s.postalCode)}` : ""}</p>
   ${phone}
-  ${products}
+  ${skuBlock}
   <div style="margin-top:auto;border-top:1px dashed #bbb;padding-top:2mm">
     <p style="font-size:6.5pt;color:#555;text-transform:uppercase;letter-spacing:.5px;margin:0 0 .5mm">SEGUIMIENTO</p>
     <p style="font-size:7pt;word-break:break-all;color:#333;margin:0;line-height:1.3">/seguimiento/${esc(s.trackingToken)}</p>
@@ -89,10 +99,7 @@ function buildLabelHtml(s: ShipmentForLabel): string {
 
 function buildPrintHtml(shipments: ShipmentForLabel[], copies: Record<string, number>): string {
   const labelsHtml = shipments
-    .flatMap((s) => {
-      const n = copies[s.id] ?? 1;
-      return Array.from({ length: n }, () => buildLabelHtml(s));
-    })
+    .flatMap((s) => Array.from({ length: copies[s.id] ?? 1 }, () => buildLabelHtml(s)))
     .join("\n");
 
   return `<!DOCTYPE html>
@@ -112,11 +119,10 @@ function buildPrintHtml(shipments: ShipmentForLabel[], copies: Record<string, nu
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 
-export function LabelPrint({ shipments }: LabelPrintProps) {
+export function LabelPrint({ shipments, initialCopies }: LabelPrintProps) {
   const [isPending, startTransition] = useTransition();
-  // Copias por envío: { [id]: número }
   const [copies, setCopies] = useState<Record<string, number>>(
-    Object.fromEntries(shipments.map((s) => [s.id, 1]))
+    initialCopies ?? Object.fromEntries(shipments.map((s) => [s.id, 1]))
   );
 
   const totalLabels = shipments.reduce((sum, s) => sum + (copies[s.id] ?? 1), 0);
@@ -151,10 +157,7 @@ export function LabelPrint({ shipments }: LabelPrintProps) {
       {/* Barra de control */}
       <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3">
-          <Link
-            href="/shipments"
-            className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900"
-          >
+          <Link href="/shipments" className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900">
             <ArrowLeft className="w-4 h-4" />
             Volver
           </Link>
@@ -180,11 +183,7 @@ export function LabelPrint({ shipments }: LabelPrintProps) {
             disabled={isPending}
             className="flex items-center gap-2 bg-blue-600 text-white text-sm font-medium px-4 h-9 rounded-md hover:bg-blue-700 disabled:opacity-60 transition-colors"
           >
-            {isPending ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <CheckCircle2 className="w-4 h-4" />
-            )}
+            {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
             Confirmar impresión
           </button>
         </div>
@@ -192,133 +191,84 @@ export function LabelPrint({ shipments }: LabelPrintProps) {
 
       <div className="bg-blue-50 border-b border-blue-100 px-6 py-2">
         <p className="text-xs text-blue-700">
-          Ajustá las copias por envío → hacé clic en <strong>Imprimir</strong> → confirmá la impresión.
+          Ajustá las copias → <strong>Imprimir</strong> → <strong>Confirmar impresión</strong>.
         </p>
       </div>
 
       {/* Previsualización */}
       <div className="flex-1 overflow-auto bg-gray-100 p-6">
         <div className="space-y-6 max-w-fit mx-auto">
-          {shipments.map((s) => (
-            <div key={s.id} className="flex flex-col items-center gap-2">
-              {/* Selector de copias */}
-              <div className="flex items-center gap-3 bg-white rounded-lg border border-gray-200 px-4 py-2 shadow-sm">
-                <span className="text-sm text-gray-600 font-medium truncate max-w-[160px]">
-                  {s.recipientName}
-                </span>
-                <div className="flex items-center gap-2 ml-2">
-                  <button
-                    onClick={() => setCopiesFor(s.id, (copies[s.id] ?? 1) - 1)}
-                    disabled={(copies[s.id] ?? 1) <= 1}
-                    className="w-6 h-6 rounded-full flex items-center justify-center border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                  >
-                    <Minus className="w-3 h-3" />
-                  </button>
-                  <span className="text-sm font-semibold text-gray-900 w-5 text-center">
-                    {copies[s.id] ?? 1}
+          {shipments.map((s) => {
+            const n = copies[s.id] ?? 1;
+            const skus = extractSkusOnly(s.products);
+            return (
+              <div key={s.id} className="flex flex-col items-center gap-2">
+                {/* Selector de copias */}
+                <div className="flex items-center gap-3 bg-white rounded-lg border border-gray-200 px-4 py-2 shadow-sm">
+                  <span className="text-sm text-gray-600 font-medium truncate max-w-[160px]">
+                    {s.recipientName}
                   </span>
-                  <button
-                    onClick={() => setCopiesFor(s.id, (copies[s.id] ?? 1) + 1)}
-                    disabled={(copies[s.id] ?? 1) >= 10}
-                    className="w-6 h-6 rounded-full flex items-center justify-center border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                  >
-                    <Plus className="w-3 h-3" />
-                  </button>
-                  <span className="text-xs text-gray-400 ml-1">
-                    {(copies[s.id] ?? 1) === 1 ? "copia" : "copias"}
-                  </span>
+                  <div className="flex items-center gap-2 ml-2">
+                    <button
+                      onClick={() => setCopiesFor(s.id, n - 1)}
+                      disabled={n <= 1}
+                      className="w-6 h-6 rounded-full flex items-center justify-center border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <Minus className="w-3 h-3" />
+                    </button>
+                    <span className="text-sm font-semibold text-gray-900 w-5 text-center">{n}</span>
+                    <button
+                      onClick={() => setCopiesFor(s.id, n + 1)}
+                      disabled={n >= 10}
+                      className="w-6 h-6 rounded-full flex items-center justify-center border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <Plus className="w-3 h-3" />
+                    </button>
+                    <span className="text-xs text-gray-400 ml-1">
+                      {n === 1 ? "copia" : "copias"}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Etiqueta preview */}
+                <div
+                  className="bg-white shadow-md overflow-hidden"
+                  style={{ width: "100mm", height: "100mm", padding: "5mm", display: "flex", flexDirection: "column", fontFamily: "Arial, Helvetica, sans-serif", boxSizing: "border-box" }}
+                >
+                  {/* Header */}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1.5px solid #000", paddingBottom: "2mm", marginBottom: "3mm" }}>
+                    <div style={{ display: "flex", alignItems: "baseline", gap: "2mm" }}>
+                      <span style={{ fontSize: "7pt", color: "#555", fontWeight: "normal" }}>LOGÍSTICA</span>
+                      <span style={{ fontSize: "9pt", fontWeight: "bold", color: "#1d4ed8" }}>SLEEPBOX</span>
+                    </div>
+                    {s.orderNumber && <span style={{ fontSize: "7pt", color: "#555" }}>#{s.orderNumber}</span>}
+                  </div>
+                  {/* Nombre */}
+                  <p style={{ fontSize: "13pt", fontWeight: "bold", lineHeight: 1.2, margin: "0 0 2mm" }}>{s.recipientName}</p>
+                  {/* Dirección */}
+                  <p style={{ fontSize: "9pt", fontWeight: 600, margin: "0 0 0.5mm", lineHeight: 1.3 }}>{s.addressLine}</p>
+                  {s.addressExtra && <p style={{ fontSize: "8pt", color: "#444", margin: "0 0 0.5mm" }}>{s.addressExtra}</p>}
+                  <p style={{ fontSize: "8.5pt", margin: "0 0 2.5mm" }}>{s.city}, {s.province}{s.postalCode ? ` CP ${s.postalCode}` : ""}</p>
+                  {/* Teléfono */}
+                  {s.recipientPhone && (
+                    <>
+                      <p style={{ fontSize: "7pt", color: "#555", textTransform: "uppercase", letterSpacing: "0.5px", margin: "0 0 0.5mm" }}>TEL</p>
+                      <p style={{ fontSize: "9pt", margin: "0 0 2.5mm" }}>{s.recipientPhone}</p>
+                    </>
+                  )}
+                  {/* SKU */}
+                  <p style={{ fontSize: "7pt", color: "#555", textTransform: "uppercase", letterSpacing: "0.5px", margin: "0 0 0.5mm" }}>SKU</p>
+                  <p style={{ fontSize: "9pt", fontWeight: "bold", color: "#222", margin: "0 0 2.5mm", lineHeight: 1.4, whiteSpace: "pre-line" }}>{skus}</p>
+                  {/* Tracking */}
+                  <div style={{ marginTop: "auto", borderTop: "1px dashed #bbb", paddingTop: "2mm" }}>
+                    <p style={{ fontSize: "6.5pt", color: "#555", textTransform: "uppercase", letterSpacing: "0.5px", margin: "0 0 0.5mm" }}>SEGUIMIENTO</p>
+                    <p style={{ fontSize: "7pt", wordBreak: "break-all", color: "#333", margin: 0, lineHeight: 1.3 }}>/seguimiento/{s.trackingToken}</p>
+                  </div>
                 </div>
               </div>
-
-              {/* Etiqueta preview */}
-              <LabelPreview shipment={s} />
-            </div>
-          ))}
+            );
+          })}
         </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Previsualización en pantalla (10×10cm) ───────────────────────────────────
-
-function LabelPreview({ shipment }: { shipment: ShipmentForLabel }) {
-  return (
-    <div
-      className="bg-white shadow-md overflow-hidden"
-      style={{
-        width: "100mm",
-        height: "100mm",
-        padding: "5mm",
-        display: "flex",
-        flexDirection: "column",
-        fontFamily: "Arial, Helvetica, sans-serif",
-        boxSizing: "border-box",
-      }}
-    >
-      {/* Header */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          borderBottom: "1.5px solid #000",
-          paddingBottom: "2mm",
-          marginBottom: "3mm",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "baseline", gap: "2mm" }}>
-          <span style={{ fontSize: "7pt", color: "#555", fontWeight: "normal", letterSpacing: "0.3px" }}>
-            LOGÍSTICA
-          </span>
-          <span style={{ fontSize: "9pt", fontWeight: "bold", letterSpacing: "0.5px", color: "#1d4ed8" }}>
-            SLEEPBOX
-          </span>
-        </div>
-        {shipment.orderNumber && (
-          <span style={{ fontSize: "7pt", color: "#555" }}>#{shipment.orderNumber}</span>
-        )}
-      </div>
-
-      {/* Nombre */}
-      <p style={{ fontSize: "13pt", fontWeight: "bold", lineHeight: 1.2, margin: "0 0 2mm" }}>
-        {shipment.recipientName}
-      </p>
-
-      {/* Dirección */}
-      <p style={{ fontSize: "9pt", fontWeight: 600, margin: "0 0 0.5mm", lineHeight: 1.3 }}>
-        {shipment.addressLine}
-      </p>
-      {shipment.addressExtra && (
-        <p style={{ fontSize: "8pt", color: "#444", margin: "0 0 0.5mm" }}>{shipment.addressExtra}</p>
-      )}
-      <p style={{ fontSize: "8.5pt", margin: "0 0 2.5mm" }}>
-        {shipment.city}, {shipment.province}
-        {shipment.postalCode ? ` CP ${shipment.postalCode}` : ""}
-      </p>
-
-      {/* Teléfono */}
-      {shipment.recipientPhone && (
-        <>
-          <p style={{ fontSize: "7pt", color: "#555", textTransform: "uppercase", letterSpacing: "0.5px", margin: "0 0 0.5mm" }}>TEL</p>
-          <p style={{ fontSize: "9pt", margin: "0 0 2.5mm" }}>{shipment.recipientPhone}</p>
-        </>
-      )}
-
-      {/* Productos */}
-      <p style={{ fontSize: "7pt", color: "#555", textTransform: "uppercase", letterSpacing: "0.5px", margin: "0 0 0.5mm" }}>PRODUCTOS</p>
-      <p style={{ fontSize: "8pt", color: "#222", margin: "0 0 2.5mm", lineHeight: 1.3, whiteSpace: "pre-line" }}>
-        {(shipment.products ?? "").trim() || "—"}
-      </p>
-
-      {/* Tracking */}
-      <div style={{ marginTop: "auto", borderTop: "1px dashed #bbb", paddingTop: "2mm" }}>
-        <p style={{ fontSize: "6.5pt", color: "#555", textTransform: "uppercase", letterSpacing: "0.5px", margin: "0 0 0.5mm" }}>
-          SEGUIMIENTO
-        </p>
-        <p style={{ fontSize: "7pt", wordBreak: "break-all", color: "#333", margin: 0, lineHeight: 1.3 }}>
-          /seguimiento/{shipment.trackingToken}
-        </p>
       </div>
     </div>
   );

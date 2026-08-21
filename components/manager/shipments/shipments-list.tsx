@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Package, Plus, Search, ChevronRight, FileUp, Printer, X, CheckCircle2, Loader2, Trash2 } from "lucide-react";
+import { Package, Plus, Search, ChevronRight, FileUp, Printer, X, CheckCircle2, Loader2, Trash2, Minus } from "lucide-react";
 import { StatusBadge } from "@/components/ui/badge";
 import { ShipmentStatus } from "@prisma/client";
 import { markAsReady } from "@/lib/actions/labels";
@@ -49,7 +49,6 @@ function extractSkus(products: string | null): string {
   if (!products) return "";
   const matches = [...products.matchAll(/\(SKU:\s*([^)]+)\)/gi)];
   if (matches.length > 0) return matches.map((m) => m[1].trim()).join(", ");
-  // Si no hay formato SKU, devolver vacío
   return "";
 }
 
@@ -59,6 +58,7 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [copies, setCopies] = useState<Record<string, number>>({});
   const [isPending, startTransition] = useTransition();
 
   const filtered = shipments.filter(
@@ -70,11 +70,24 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
 
   // ── Selección ─────────────────────────────────────────────────────────────
 
+  function getCopies(id: string) {
+    return copies[id] ?? 1;
+  }
+
+  function setCopiesFor(id: string, value: number) {
+    setCopies((prev) => ({ ...prev, [id]: Math.max(1, Math.min(10, value)) }));
+  }
+
   function toggleSelect(id: string) {
     setSelectedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+        // inicializar copias en 1 si no existe
+        setCopies((c) => ({ ...c, [id]: c[id] ?? 1 }));
+      }
       return next;
     });
   }
@@ -83,7 +96,13 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
     if (selectedIds.size === filtered.length) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(filtered.map((s) => s.id)));
+      const newIds = filtered.map((s) => s.id);
+      setSelectedIds(new Set(newIds));
+      setCopies((c) => {
+        const next = { ...c };
+        newIds.forEach((id) => { if (!next[id]) next[id] = 1; });
+        return next;
+      });
     }
   }
 
@@ -92,8 +111,9 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
   }
 
   function handleGenerateLabels() {
-    const ids = Array.from(selectedIds).join(",");
-    router.push(`/shipments/labels?ids=${ids}`);
+    const ids = Array.from(selectedIds);
+    const qty = ids.map((id) => getCopies(id));
+    router.push(`/shipments/labels?ids=${ids.join(",")}&qty=${qty.join(",")}`);
   }
 
   // ── Tabs ──────────────────────────────────────────────────────────────────
@@ -107,6 +127,7 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
 
   const allSelected = filtered.length > 0 && selectedIds.size === filtered.length;
   const someSelected = selectedIds.size > 0 && selectedIds.size < filtered.length;
+  const totalLabels = Array.from(selectedIds).reduce((sum, id) => sum + getCopies(id), 0);
 
   return (
     <div className="flex-1 flex flex-col min-h-0 relative">
@@ -172,16 +193,10 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
             </p>
             {!search && (
               <div className="flex gap-3 mt-4">
-                <Link
-                  href="/shipments/upload"
-                  className="text-sm text-blue-600 hover:underline font-medium"
-                >
+                <Link href="/shipments/upload" className="text-sm text-blue-600 hover:underline font-medium">
                   Subir PDF →
                 </Link>
-                <Link
-                  href="/shipments/new"
-                  className="text-sm text-gray-500 hover:underline"
-                >
+                <Link href="/shipments/new" className="text-sm text-gray-500 hover:underline">
                   Carga manual
                 </Link>
               </div>
@@ -194,13 +209,11 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-100 bg-gray-50">
-                    <th className="pl-4 pr-2 py-3 w-8">
+                    <th className="pl-4 pr-2 py-3">
                       <input
                         type="checkbox"
                         checked={allSelected}
-                        ref={(el) => {
-                          if (el) el.indeterminate = someSelected;
-                        }}
+                        ref={(el) => { if (el) el.indeterminate = someSelected; }}
                         onChange={toggleAll}
                         className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
                       />
@@ -230,6 +243,7 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
                   {filtered.map((s) => {
                     const isSelected = selectedIds.has(s.id);
                     const skus = extractSkus(s.products);
+                    const n = getCopies(s.id);
                     return (
                       <tr
                         key={s.id}
@@ -238,14 +252,35 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
                         }`}
                         onClick={() => router.push(`/shipments/${s.id}`)}
                       >
-                        <td className="pl-4 pr-2 py-3">
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => toggleSelect(s.id)}
-                            onClick={(e) => e.stopPropagation()}
-                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                          />
+                        {/* Checkbox + contador de copias */}
+                        <td className="pl-3 pr-2 py-3" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => toggleSelect(s.id)}
+                              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer shrink-0"
+                            />
+                            {isSelected && (
+                              <div className="flex items-center gap-0.5">
+                                <button
+                                  onClick={() => setCopiesFor(s.id, n - 1)}
+                                  disabled={n <= 1}
+                                  className="w-5 h-5 rounded flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                >
+                                  <Minus className="w-3 h-3" />
+                                </button>
+                                <span className="text-xs font-semibold text-blue-700 w-4 text-center">{n}</span>
+                                <button
+                                  onClick={() => setCopiesFor(s.id, n + 1)}
+                                  disabled={n >= 10}
+                                  className="w-5 h-5 rounded flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                >
+                                  <Plus className="w-3 h-3" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
                         </td>
                         <td className="px-4 py-3">
                           <p className="font-medium text-gray-900">{s.recipientName}</p>
@@ -262,17 +297,13 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
                         </td>
                         <td className="px-4 py-3 text-gray-600">
                           <p>{s.addressLine}</p>
-                          <p className="text-xs text-gray-400">
-                            {s.city}, {s.province}
-                          </p>
+                          <p className="text-xs text-gray-400">{s.city}, {s.province}</p>
                         </td>
                         <td className="px-4 py-3">
                           <StatusBadge status={s.status} />
                         </td>
                         <td className="px-4 py-3 text-gray-600">
-                          {s.assignedDriver?.name ?? (
-                            <span className="text-gray-300">—</span>
-                          )}
+                          {s.assignedDriver?.name ?? <span className="text-gray-300">—</span>}
                         </td>
                         <td className="px-4 py-3 text-gray-400 text-xs">
                           {new Date(s.createdAt).toLocaleDateString("es-AR")}
@@ -291,6 +322,7 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
             <div className="md:hidden space-y-2">
               {filtered.map((s) => {
                 const isSelected = selectedIds.has(s.id);
+                const n = getCopies(s.id);
                 return (
                   <div
                     key={s.id}
@@ -298,27 +330,31 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
                       isSelected ? "border-blue-300 bg-blue-50" : "border-gray-200"
                     }`}
                   >
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => toggleSelect(s.id)}
-                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer shrink-0"
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                    <Link
-                      href={`/shipments/${s.id}`}
-                      className="flex items-center justify-between flex-1 min-w-0"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-gray-900 truncate">
-                          {s.recipientName}
-                        </p>
-                        <p className="text-xs text-gray-500 truncate">
-                          {s.addressLine}, {s.city}
-                        </p>
-                        <div className="mt-2">
-                          <StatusBadge status={s.status} />
+                    <div className="flex flex-col items-center gap-1 shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleSelect(s.id)}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                      {isSelected && (
+                        <div className="flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
+                          <button onClick={() => setCopiesFor(s.id, n - 1)} disabled={n <= 1} className="w-5 h-5 rounded flex items-center justify-center text-gray-400 hover:bg-gray-200 disabled:opacity-30">
+                            <Minus className="w-3 h-3" />
+                          </button>
+                          <span className="text-xs font-bold text-blue-700 w-4 text-center">{n}</span>
+                          <button onClick={() => setCopiesFor(s.id, n + 1)} disabled={n >= 10} className="w-5 h-5 rounded flex items-center justify-center text-gray-400 hover:bg-gray-200 disabled:opacity-30">
+                            <Plus className="w-3 h-3" />
+                          </button>
                         </div>
+                      )}
+                    </div>
+                    <Link href={`/shipments/${s.id}`} className="flex items-center justify-between flex-1 min-w-0">
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-gray-900 truncate">{s.recipientName}</p>
+                        <p className="text-xs text-gray-500 truncate">{s.addressLine}, {s.city}</p>
+                        <div className="mt-2"><StatusBadge status={s.status} /></div>
                       </div>
                       <ChevronRight className="w-4 h-4 text-gray-300 shrink-0 ml-3" />
                     </Link>
@@ -334,17 +370,14 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
       {selectedIds.size > 0 && (
         <div className="absolute bottom-0 left-0 right-0 p-4 bg-white border-t border-gray-200 shadow-lg flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-3">
-            <button
-              onClick={clearSelection}
-              className="text-gray-400 hover:text-gray-600 transition-colors"
-              title="Cancelar selección"
-            >
+            <button onClick={clearSelection} className="text-gray-400 hover:text-gray-600 transition-colors" title="Cancelar selección">
               <X className="w-5 h-5" />
             </button>
             <span className="text-sm font-medium text-gray-900">
-              {selectedIds.size === 1
-                ? "1 envío seleccionado"
-                : `${selectedIds.size} envíos seleccionados`}
+              {selectedIds.size === 1 ? "1 envío" : `${selectedIds.size} envíos`}
+              {totalLabels !== selectedIds.size && (
+                <span className="text-gray-400 font-normal ml-1">· {totalLabels} etiquetas</span>
+              )}
             </span>
           </div>
           <div className="flex gap-2">
