@@ -184,6 +184,7 @@ export async function deleteShipments(ids: string[]) {
   // Eliminar registros hijos primero para evitar violaciones de FK
   await prisma.shipmentEvent.deleteMany({ where: { shipmentId: { in: ids } } });
   await prisma.labelBatchItem.deleteMany({ where: { shipmentId: { in: ids } } });
+  await prisma.routeItem.deleteMany({ where: { shipmentId: { in: ids } } });
 
   await prisma.shipment.deleteMany({ where: { id: { in: ids } } });
 
