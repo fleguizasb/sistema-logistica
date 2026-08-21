@@ -13,15 +13,32 @@ export default async function LabelsPage({
   const session = await auth();
   if (!session?.user) redirect("/login");
 
-  const ids = (searchParams.ids ?? "").split(",").filter(Boolean);
-  if (ids.length === 0) redirect("/shipments");
+  // Parsear formato "id1:qty1,id2:qty2" (retrocompatible con "id1,id2" sin qty)
+  const rawItems = (searchParams.ids ?? "")
+    .split(",")
+    .filter(Boolean)
+    .map((raw) => {
+      const [id, qtyStr] = raw.split(":");
+      const qty = Math.max(1, parseInt(qtyStr ?? "1") || 1);
+      return { id, qty };
+    });
 
-  const shipments = await prisma.shipment.findMany({
-    where: { id: { in: ids } },
+  if (rawItems.length === 0) redirect("/shipments");
+
+  const uniqueIds = [...new Set(rawItems.map((i) => i.id))];
+
+  const baseShipments = await prisma.shipment.findMany({
+    where: { id: { in: uniqueIds } },
     orderBy: { createdAt: "asc" },
   });
 
-  if (shipments.length === 0) redirect("/shipments");
+  if (baseShipments.length === 0) redirect("/shipments");
+
+  // Expandir: un envío con qty:3 genera 3 entradas (una etiqueta por entrada)
+  const shipments = rawItems.flatMap(({ id, qty }) => {
+    const s = baseShipments.find((b) => b.id === id);
+    return s ? Array.from({ length: qty }, () => s) : [];
+  });
 
   return <LabelPrint shipments={shipments} />;
 }

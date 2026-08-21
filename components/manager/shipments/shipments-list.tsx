@@ -34,7 +34,6 @@ function extractSkus(products: string | null): string {
     const skus = matches.map((m) => m.replace(/\(SKU:\s*/, "").replace(/\)$/, "").trim());
     return [...new Set(skus)].join(", ");
   }
-  // Fallback: códigos tipo ESB-PLU260280-BL
   const skuLike = products.match(/\b[A-Z]{2,}-[A-Z0-9_-]+\b/g) ?? [];
   return [...new Set(skuLike)].join(", ");
 }
@@ -49,33 +48,51 @@ function daysSince(date: Date): number {
 }
 
 function DelayBadge({ createdAt, status }: { createdAt: Date; status: ShipmentStatus }) {
-  // No mostrar en estados finales
   if (FINAL_STATUSES.includes(status)) return <span className="text-gray-300">—</span>;
-
   const days = daysSince(createdAt);
-
   if (days === 0) return <span className="text-gray-400 text-xs">Hoy</span>;
-
   const label = days === 1 ? "1 día" : `${days} días`;
-
   if (days <= 1) {
-    return (
-      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
-        {label}
-      </span>
-    );
+    return <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">{label}</span>;
   }
   if (days <= 3) {
-    return (
-      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700">
-        {label}
-      </span>
-    );
+    return <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700">{label}</span>;
   }
+  return <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">{label}</span>;
+}
+
+// ─── Selector de cantidad ─────────────────────────────────────────────────────
+
+function QtyControl({
+  count,
+  onIncrement,
+  onDecrement,
+}: {
+  count: number;
+  onIncrement: () => void;
+  onDecrement: () => void;
+}) {
   return (
-    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">
-      {label}
-    </span>
+    <div
+      className="inline-flex items-center rounded border border-gray-200 overflow-hidden"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <button
+        onClick={onDecrement}
+        className="px-1.5 py-0.5 text-xs text-gray-500 hover:bg-gray-100 leading-none select-none"
+      >
+        −
+      </button>
+      <span className="px-1.5 text-xs font-semibold text-gray-700 min-w-[20px] text-center select-none">
+        {count}
+      </span>
+      <button
+        onClick={onIncrement}
+        className="px-1.5 py-0.5 text-xs text-gray-500 hover:bg-gray-100 leading-none select-none"
+      >
+        +
+      </button>
+    </div>
   );
 }
 
@@ -101,7 +118,8 @@ const TABS: { value: string; label: string }[] = [
 export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) {
   const router = useRouter();
   const [search, setSearch] = useState("");
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // Map<id, cantidad de etiquetas>  — cantidad mínima 1
+  const [selectedCounts, setSelectedCounts] = useState<Map<string, number>>(new Map());
   const [isPending, startTransition] = useTransition();
 
   const filtered = shipments.filter(
@@ -111,45 +129,68 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
       (s.orderNumber ?? "").toLowerCase().includes(search.toLowerCase())
   );
 
-  // ── Selección ─────────────────────────────────────────────────────────────
+  // ── Helpers de selección ───────────────────────────────────────────────────
+
+  function isSelected(id: string) {
+    return selectedCounts.has(id);
+  }
+
+  function getCount(id: string) {
+    return selectedCounts.get(id) ?? 1;
+  }
 
   function toggleSelect(id: string) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
+    setSelectedCounts((prev) => {
+      const next = new Map(prev);
       if (next.has(id)) next.delete(id);
-      else next.add(id);
+      else next.set(id, 1);
+      return next;
+    });
+  }
+
+  function setCount(id: string, count: number) {
+    setSelectedCounts((prev) => {
+      const next = new Map(prev);
+      if (count <= 0) next.delete(id);  // deselecciona si llega a 0
+      else next.set(id, count);
       return next;
     });
   }
 
   function toggleAll() {
-    if (selectedIds.size === filtered.length) {
-      setSelectedIds(new Set());
+    if (selectedCounts.size === filtered.length) {
+      setSelectedCounts(new Map());
     } else {
-      setSelectedIds(new Set(filtered.map((s) => s.id)));
+      // Preserva cantidades ya configuradas; nuevos entran con 1
+      setSelectedCounts(new Map(filtered.map((s) => [s.id, selectedCounts.get(s.id) ?? 1])));
     }
   }
 
   function clearSelection() {
-    setSelectedIds(new Set());
+    setSelectedCounts(new Map());
   }
+
+  // Total de etiquetas a imprimir (suma de todas las cantidades)
+  const totalLabels = Array.from(selectedCounts.values()).reduce((sum, n) => sum + n, 0);
+  const allSelected = filtered.length > 0 && selectedCounts.size === filtered.length;
+  const someSelected = selectedCounts.size > 0 && selectedCounts.size < filtered.length;
+
+  // ── Navegación ─────────────────────────────────────────────────────────────
 
   function handleGenerateLabels() {
-    const ids = Array.from(selectedIds).join(",");
-    router.push(`/shipments/labels?ids=${ids}`);
+    // Formato: id1:qty1,id2:qty2
+    const idsParam = Array.from(selectedCounts.entries())
+      .map(([id, qty]) => `${id}:${qty}`)
+      .join(",");
+    router.push(`/shipments/labels?ids=${idsParam}`);
   }
 
-  // ── Tabs ──────────────────────────────────────────────────────────────────
-
   function handleTabChange(value: string) {
-    setSelectedIds(new Set());
+    setSelectedCounts(new Map());
     const params = new URLSearchParams();
     if (value !== "ALL") params.set("status", value);
     router.push(`/shipments?${params.toString()}`);
   }
-
-  const allSelected = filtered.length > 0 && selectedIds.size === filtered.length;
-  const someSelected = selectedIds.size > 0 && selectedIds.size < filtered.length;
 
   return (
     <div className="flex-1 flex flex-col min-h-0 relative">
@@ -215,16 +256,10 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
             </p>
             {!search && (
               <div className="flex gap-3 mt-4">
-                <Link
-                  href="/shipments/upload"
-                  className="text-sm text-blue-600 hover:underline font-medium"
-                >
+                <Link href="/shipments/upload" className="text-sm text-blue-600 hover:underline font-medium">
                   Subir PDF →
                 </Link>
-                <Link
-                  href="/shipments/new"
-                  className="text-sm text-gray-500 hover:underline"
-                >
+                <Link href="/shipments/new" className="text-sm text-gray-500 hover:underline">
                   Carga manual
                 </Link>
               </div>
@@ -232,73 +267,71 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
           </div>
         ) : (
           <>
-            {/* Tabla desktop */}
+            {/* ── Tabla desktop ── */}
             <div className="hidden md:block bg-white rounded-xl border border-gray-200 overflow-hidden">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-100 bg-gray-50">
-                    {/* Checkbox "select all" */}
-                    <th className="pl-4 pr-2 py-3 w-8">
+                    <th className="pl-4 pr-2 py-3 w-10">
                       <input
                         type="checkbox"
                         checked={allSelected}
-                        ref={(el) => {
-                          if (el) el.indeterminate = someSelected;
-                        }}
+                        ref={(el) => { if (el) el.indeterminate = someSelected; }}
                         onChange={toggleAll}
                         className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
                       />
                     </th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                      Destinatario
+                    {/* Columna de cantidad — solo visible cuando hay selección */}
+                    <th className={`py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide transition-all ${selectedCounts.size > 0 ? "w-24 px-2" : "w-0 overflow-hidden p-0"}`}>
+                      {selectedCounts.size > 0 && "Etiquetas"}
                     </th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                      SKU
-                    </th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                      Dirección
-                    </th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                      Estado
-                    </th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                      Retraso
-                    </th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                      Chofer
-                    </th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                      Fecha
-                    </th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Destinatario</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">SKU</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Dirección</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Estado</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Retraso</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Chofer</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Fecha</th>
                     <th className="w-8" />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {filtered.map((s) => {
-                    const isSelected = selectedIds.has(s.id);
+                    const selected = isSelected(s.id);
+                    const count = getCount(s.id);
                     return (
                       <tr
                         key={s.id}
-                        className={`transition-colors cursor-pointer ${
-                          isSelected ? "bg-blue-50" : "hover:bg-gray-50"
-                        }`}
+                        className={`transition-colors cursor-pointer ${selected ? "bg-blue-50" : "hover:bg-gray-50"}`}
                         onClick={() => router.push(`/shipments/${s.id}`)}
                       >
-                        {/* Checkbox individual */}
-                        <td className="pl-4 pr-2 py-3">
+                        {/* Checkbox */}
+                        <td className="pl-4 pr-2 py-3" onClick={(e) => e.stopPropagation()}>
                           <input
                             type="checkbox"
-                            checked={isSelected}
+                            checked={selected}
                             onChange={() => toggleSelect(s.id)}
-                            onClick={(e) => e.stopPropagation()}
                             className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
                           />
                         </td>
+
+                        {/* Control de cantidad — solo visible cuando la fila está seleccionada */}
+                        <td
+                          className={`py-3 transition-all ${selectedCounts.size > 0 ? "w-24 px-2" : "w-0 overflow-hidden p-0"}`}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {selected && (
+                            <QtyControl
+                              count={count}
+                              onIncrement={() => setCount(s.id, count + 1)}
+                              onDecrement={() => setCount(s.id, count - 1)}
+                            />
+                          )}
+                        </td>
+
                         <td className="px-4 py-3">
                           <p className="font-medium text-gray-900">{s.recipientName}</p>
-                          {s.orderNumber && (
-                            <p className="text-xs text-gray-400">#{s.orderNumber}</p>
-                          )}
+                          {s.orderNumber && <p className="text-xs text-gray-400">#{s.orderNumber}</p>}
                         </td>
                         <td className="px-4 py-3">
                           {extractSkus(s.products) ? (
@@ -311,20 +344,12 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
                         </td>
                         <td className="px-4 py-3 text-gray-600">
                           <p>{s.addressLine}</p>
-                          <p className="text-xs text-gray-400">
-                            {s.city}, {s.province}
-                          </p>
+                          <p className="text-xs text-gray-400">{s.city}, {s.province}</p>
                         </td>
-                        <td className="px-4 py-3">
-                          <StatusBadge status={s.status} />
-                        </td>
-                        <td className="px-4 py-3">
-                          <DelayBadge createdAt={s.createdAt} status={s.status} />
-                        </td>
+                        <td className="px-4 py-3"><StatusBadge status={s.status} /></td>
+                        <td className="px-4 py-3"><DelayBadge createdAt={s.createdAt} status={s.status} /></td>
                         <td className="px-4 py-3 text-gray-600">
-                          {s.assignedDriver?.name ?? (
-                            <span className="text-gray-300">—</span>
-                          )}
+                          {s.assignedDriver?.name ?? <span className="text-gray-300">—</span>}
                         </td>
                         <td className="px-4 py-3 text-gray-400 text-xs">
                           {new Date(s.createdAt).toLocaleDateString("es-AR")}
@@ -339,33 +364,38 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
               </table>
             </div>
 
-            {/* Tarjetas mobile */}
+            {/* ── Tarjetas mobile ── */}
             <div className="md:hidden space-y-2">
               {filtered.map((s) => {
-                const isSelected = selectedIds.has(s.id);
+                const selected = isSelected(s.id);
+                const count = getCount(s.id);
                 return (
                   <div
                     key={s.id}
-                    className={`flex items-center gap-3 bg-white border rounded-xl p-4 transition-colors ${
-                      isSelected ? "border-blue-300 bg-blue-50" : "border-gray-200"
+                    className={`flex items-start gap-3 bg-white border rounded-xl p-4 transition-colors ${
+                      selected ? "border-blue-300 bg-blue-50" : "border-gray-200"
                     }`}
                   >
-                    {/* Checkbox mobile */}
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => toggleSelect(s.id)}
-                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer shrink-0"
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                    <Link
-                      href={`/shipments/${s.id}`}
-                      className="flex items-center justify-between flex-1 min-w-0"
-                    >
+                    {/* Checkbox + cantidad mobile */}
+                    <div className="flex flex-col items-center gap-2 pt-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        onChange={() => toggleSelect(s.id)}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                      />
+                      {selected && (
+                        <QtyControl
+                          count={count}
+                          onIncrement={() => setCount(s.id, count + 1)}
+                          onDecrement={() => setCount(s.id, count - 1)}
+                        />
+                      )}
+                    </div>
+
+                    <Link href={`/shipments/${s.id}`} className="flex items-center justify-between flex-1 min-w-0">
                       <div className="flex-1 min-w-0">
-                        <p className="font-medium text-gray-900 truncate">
-                          {s.recipientName}
-                        </p>
+                        <p className="font-medium text-gray-900 truncate">{s.recipientName}</p>
                         <p className="text-xs text-gray-500 truncate">
                           {s.addressLine}, {s.city}
                         </p>
@@ -385,7 +415,7 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
       </div>
 
       {/* ── Barra flotante de selección ── */}
-      {selectedIds.size > 0 && (
+      {selectedCounts.size > 0 && (
         <div className="absolute bottom-0 left-0 right-0 p-4 bg-white border-t border-gray-200 shadow-lg flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-3">
             <button
@@ -395,19 +425,24 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
             >
               <X className="w-5 h-5" />
             </button>
-            <span className="text-sm font-medium text-gray-900">
-              {selectedIds.size === 1
-                ? "1 envío seleccionado"
-                : `${selectedIds.size} envíos seleccionados`}
-            </span>
+            <div>
+              <span className="text-sm font-medium text-gray-900">
+                {selectedCounts.size === 1 ? "1 envío" : `${selectedCounts.size} envíos`}
+              </span>
+              {totalLabels !== selectedCounts.size && (
+                <span className="text-sm text-blue-600 font-semibold ml-1.5">
+                  · {totalLabels} etiquetas
+                </span>
+              )}
+            </div>
           </div>
           <div className="flex gap-2">
             <button
               onClick={() => {
-                const n = selectedIds.size;
+                const n = selectedCounts.size;
                 if (!confirm(`¿Eliminar ${n} envío${n > 1 ? "s" : ""}? Esta acción no se puede deshacer.`)) return;
                 startTransition(async () => {
-                  await deleteShipments(Array.from(selectedIds));
+                  await deleteShipments(Array.from(selectedCounts.keys()));
                   clearSelection();
                   router.refresh();
                 });
@@ -421,7 +456,7 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
             <button
               onClick={() => {
                 startTransition(async () => {
-                  await markAsReady(Array.from(selectedIds));
+                  await markAsReady(Array.from(selectedCounts.keys()));
                   clearSelection();
                   router.refresh();
                 });
@@ -439,6 +474,11 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
             >
               <Printer className="w-4 h-4" />
               Generar etiquetas
+              {totalLabels > 0 && (
+                <span className="bg-blue-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full ml-0.5">
+                  {totalLabels}
+                </span>
+              )}
             </button>
           </div>
         </div>

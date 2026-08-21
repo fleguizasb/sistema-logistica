@@ -134,7 +134,9 @@ export function LabelPrint({ shipments }: LabelPrintProps) {
 
   function handleConfirm() {
     startTransition(async () => {
-      await confirmLabels(shipments.map((s) => s.id));
+      // Desduplicar: si hay varias etiquetas del mismo envío, confirmar solo una vez
+      const uniqueIds = [...new Set(shipments.map((s) => s.id))];
+      await confirmLabels(uniqueIds);
     });
   }
 
@@ -153,6 +155,13 @@ export function LabelPrint({ shipments }: LabelPrintProps) {
           <span className="text-gray-300">|</span>
           <p className="text-sm font-medium text-gray-900">
             {shipments.length === 1 ? "1 etiqueta" : `${shipments.length} etiquetas`}
+            {/* Mostrar envíos únicos si difiere del total */}
+            {(() => {
+              const unique = new Set(shipments.map((s) => s.id)).size;
+              return unique < shipments.length ? (
+                <span className="text-gray-400 font-normal ml-1">({unique} envíos)</span>
+              ) : null;
+            })()}
           </p>
         </div>
 
