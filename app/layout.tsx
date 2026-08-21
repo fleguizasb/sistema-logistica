@@ -15,12 +15,18 @@ export const metadata: Metadata = {
   title: "Logística SleepBox",
   description: "Gestión de envíos y seguimiento en tiempo real",
   robots: "noindex, nofollow",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "SleepBox",
+  },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
+  themeColor: "#2563eb",
 };
 
 export default async function RootLayout({

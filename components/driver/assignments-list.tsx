@@ -44,6 +44,7 @@ export function AssignmentsList({ shipments }: AssignmentsListProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [mapsUrl, setMapsUrl] = useState<string | null>(null);
 
   const listos = shipments.filter((s) => s.status === ShipmentStatus.LISTO_PARA_ENVIAR);
   const enCamino = shipments.filter((s) => s.status === ShipmentStatus.EN_CAMINO);
@@ -68,6 +69,7 @@ export function AssignmentsList({ shipments }: AssignmentsListProps) {
 
   function handleStartRoute() {
     setError(null);
+    setMapsUrl(null);
     startTransition(async () => {
       const result = await startRoute(Array.from(selectedIds));
       if (!result.success) {
@@ -75,11 +77,11 @@ export function AssignmentsList({ shipments }: AssignmentsListProps) {
         return;
       }
       clearSelection();
-      router.refresh();
-      // Abrir Google Maps en la misma pestaña (mobile)
+      // Guardar la URL en estado — window.open en callbacks async es bloqueado por mobile browsers
       if (result.mapsUrl) {
-        window.open(result.mapsUrl, "_blank");
+        setMapsUrl(result.mapsUrl);
       }
+      router.refresh();
     });
   }
 
@@ -119,6 +121,24 @@ export function AssignmentsList({ shipments }: AssignmentsListProps) {
             </button>
           )}
         </div>
+
+        {/* Botón Google Maps — aparece luego de iniciar recorrido */}
+        {mapsUrl && (
+          <div className="mt-2 flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+            <Navigation className="w-4 h-4 text-blue-600 shrink-0" />
+            <a
+              href={mapsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex-1 text-sm font-semibold text-blue-700 underline-offset-2 hover:underline"
+            >
+              Abrir recorrido en Google Maps
+            </a>
+            <button onClick={() => setMapsUrl(null)} className="text-blue-400 hover:text-blue-600">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
 
         {/* Error inline */}
         {error && (
