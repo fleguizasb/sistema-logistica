@@ -178,11 +178,16 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
   // ── Navegación ─────────────────────────────────────────────────────────────
 
   function handleGenerateLabels() {
-    // Formato: id1:qty1,id2:qty2
+    const uniqueIds = Array.from(selectedCounts.keys());
     const idsParam = Array.from(selectedCounts.entries())
       .map(([id, qty]) => `${id}:${qty}`)
       .join(",");
-    router.push(`/shipments/labels?ids=${idsParam}`);
+
+    // Cambiar a LISTO_PARA_ENVIAR inmediatamente al generar las etiquetas
+    startTransition(async () => {
+      await markAsReady(uniqueIds);
+      router.push(`/shipments/labels?ids=${idsParam}`);
+    });
   }
 
   function handleTabChange(value: string) {
