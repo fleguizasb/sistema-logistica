@@ -32,35 +32,33 @@ export function buildGoogleMapsUrl(
 ): string {
   if (stops.length === 0) return "";
 
-  const baseUrl = "https://www.google.com/maps/dir/";
-  const params = new URLSearchParams();
-  params.set("api", "1");
-  params.set("travelmode", "driving");
-
-  // Destino final (última parada)
-  const lastStop = stops[stops.length - 1];
-  const destQuery = lastStop.coordinates
-    ? `${lastStop.coordinates.lat},${lastStop.coordinates.lng}`
-    : `${encodeURIComponent(`${lastStop.addressLine}, ${lastStop.city}`)}`;
-  params.set("destination", destQuery);
-
-  // Origen
-  if (originCoords) {
-    params.set("origin", `${originCoords.lat},${originCoords.lng}`);
+  // Helper: devuelve coordenadas o dirección codificada una sola vez
+  function stopParam(s: { addressLine: string; city: string; coordinates: { lat: number; lng: number } | null }): string {
+    if (s.coordinates) return `${s.coordinates.lat},${s.coordinates.lng}`;
+    return encodeURIComponent(`${s.addressLine}, ${s.city}`);
   }
 
-  // Waypoints intermedios (todas las paradas excepto la última)
+  // Construimos la URL manualmente para evitar doble encoding.
+  // URLSearchParams codifica los valores automáticamente al hacer .toString(),
+  // lo que causaría doble encoding si ya usamos encodeURIComponent antes.
+  const parts: string[] = [
+    "api=1",
+    "travelmode=driving",
+    `destination=${stopParam(stops[stops.length - 1])}`,
+  ];
+
+  if (originCoords) {
+    parts.push(`origin=${originCoords.lat},${originCoords.lng}`);
+  }
+
+  // Waypoints: separados por | (pipe), que NO debe ser re-codificado
   if (stops.length > 1) {
     const waypoints = stops
       .slice(0, -1)
-      .map((s) =>
-        s.coordinates
-          ? `${s.coordinates.lat},${s.coordinates.lng}`
-          : `${s.addressLine}, ${s.city}`
-      )
+      .map(stopParam)
       .join("|");
-    params.set("waypoints", waypoints);
+    parts.push(`waypoints=${waypoints}`);
   }
 
-  return `${baseUrl}?${params.toString()}`;
+  return `https://www.google.com/maps/dir/?${parts.join("&")}`;
 }
