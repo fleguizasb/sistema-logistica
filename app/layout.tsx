@@ -1,25 +1,26 @@
 import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
+import { Lato } from "next/font/google";
 import "./globals.css";
 import { SessionProvider } from "next-auth/react";
 import { auth } from "@/auth";
 import { Toaster } from "@/components/ui/toaster";
 
-const inter = Inter({
+const lato = Lato({
+  weight: ["300", "400", "700", "900"],
   subsets: ["latin"],
-  variable: "--font-inter",
+  variable: "--font-lato",
 });
 
 export const metadata: Metadata = {
-  title: "Sistema Logístico",
+  title: "Logística SleepBox",
   description: "Gestión de envíos y seguimiento en tiempo real",
-  robots: "noindex, nofollow", // No indexar hasta producción
+  robots: "noindex, nofollow",
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1, // Evita zoom accidental en campos de formulario en mobile
+  maximumScale: 1,
 };
 
 export default async function RootLayout({
@@ -30,7 +31,7 @@ export default async function RootLayout({
   const session = await auth();
 
   return (
-    <html lang="es" className={inter.variable}>
+    <html lang="es" className={lato.variable}>
       <body className="antialiased bg-gray-50 text-gray-900 font-sans">
         <SessionProvider session={session}>
           {children}

@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { LabelPrint } from "@/components/manager/shipments/label-print";
 
-export const metadata = { title: "Imprimir etiquetas — Sistema Logístico" };
+export const metadata = { title: "Etiquetas — Logística SleepBox" };
 
 export default async function LabelsPage({
   searchParams,

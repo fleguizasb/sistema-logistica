@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Loader2, Package } from "lucide-react";
+import { Loader2, Truck } from "lucide-react";
 
 const loginSchema = z.object({
   email: z.string().email("Email inválido"),
@@ -41,7 +41,6 @@ export default function LoginPage() {
       return;
     }
 
-    // El middleware redirige según el rol (MANAGER → /dashboard, DRIVER → /assignments)
     router.push("/");
     router.refresh();
   };
@@ -52,10 +51,11 @@ export default function LoginPage() {
         {/* Logo / Encabezado */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-blue-600 mb-4">
-            <Package className="w-7 h-7 text-white" />
+            <Truck className="w-7 h-7 text-white" />
           </div>
-          <h1 className="text-2xl font-semibold text-gray-900">
-            Sistema Logístico
+          <h1 className="text-2xl font-bold text-gray-900">
+            Logística{" "}
+            <span className="text-blue-600">SleepBox</span>
           </h1>
           <p className="text-sm text-gray-500 mt-1">
             Ingresá con tu cuenta

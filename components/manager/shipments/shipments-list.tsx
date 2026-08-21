@@ -39,6 +39,46 @@ function extractSkus(products: string | null): string {
   return [...new Set(skuLike)].join(", ");
 }
 
+// ─── Retraso ──────────────────────────────────────────────────────────────────
+
+const FINAL_STATUSES: ShipmentStatus[] = [ShipmentStatus.ENTREGADO, ShipmentStatus.CANCELADO];
+
+function daysSince(date: Date): number {
+  const ms = Date.now() - new Date(date).getTime();
+  return Math.floor(ms / (1000 * 60 * 60 * 24));
+}
+
+function DelayBadge({ createdAt, status }: { createdAt: Date; status: ShipmentStatus }) {
+  // No mostrar en estados finales
+  if (FINAL_STATUSES.includes(status)) return <span className="text-gray-300">—</span>;
+
+  const days = daysSince(createdAt);
+
+  if (days === 0) return <span className="text-gray-400 text-xs">Hoy</span>;
+
+  const label = days === 1 ? "1 día" : `${days} días`;
+
+  if (days <= 1) {
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+        {label}
+      </span>
+    );
+  }
+  if (days <= 3) {
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700">
+        {label}
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">
+      {label}
+    </span>
+  );
+}
+
 interface ShipmentsListProps {
   shipments: Shipment[];
   currentStatus: string;
@@ -222,6 +262,9 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
                       Estado
                     </th>
                     <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                      Retraso
+                    </th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
                       Chofer
                     </th>
                     <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
@@ -275,6 +318,9 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
                         <td className="px-4 py-3">
                           <StatusBadge status={s.status} />
                         </td>
+                        <td className="px-4 py-3">
+                          <DelayBadge createdAt={s.createdAt} status={s.status} />
+                        </td>
                         <td className="px-4 py-3 text-gray-600">
                           {s.assignedDriver?.name ?? (
                             <span className="text-gray-300">—</span>
@@ -323,8 +369,9 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
                         <p className="text-xs text-gray-500 truncate">
                           {s.addressLine}, {s.city}
                         </p>
-                        <div className="mt-2">
+                        <div className="mt-2 flex items-center gap-2 flex-wrap">
                           <StatusBadge status={s.status} />
+                          <DelayBadge createdAt={s.createdAt} status={s.status} />
                         </div>
                       </div>
                       <ChevronRight className="w-4 h-4 text-gray-300 shrink-0 ml-3" />

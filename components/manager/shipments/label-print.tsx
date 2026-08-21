@@ -54,7 +54,6 @@ function buildPrintHtml(shipments: ShipmentForLabel[]): string {
            <p style="font-size:9pt;margin:0 0 2.5mm">${esc(s.recipientPhone)}</p>`
         : "";
 
-      // Limitar productos a 3 líneas para que entren en 10x10
       const rawProducts = (s.products ?? "").trim();
       const productDisplay = rawProducts || "—";
 
@@ -72,7 +71,10 @@ function buildPrintHtml(shipments: ShipmentForLabel[]): string {
 ">
   <!-- Header -->
   <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1.5px solid #000;padding-bottom:2mm;margin-bottom:3mm">
-    <span style="font-size:8pt;font-weight:bold;letter-spacing:.5px">SISTEMA LOGÍSTICO</span>
+    <div style="display:flex;align-items:baseline;gap:2mm">
+      <span style="font-size:7pt;color:#555;font-weight:normal;letter-spacing:.3px">LOGÍSTICA</span>
+      <span style="font-size:9pt;font-weight:bold;letter-spacing:.5px;color:#1d4ed8">SLEEPBOX</span>
+    </div>
     ${order}
   </div>
 
@@ -100,7 +102,7 @@ function buildPrintHtml(shipments: ShipmentForLabel[]): string {
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <title>Etiquetas</title>
+  <title>Etiquetas — SleepBox</title>
   <style>
     * { margin:0; padding:0; box-sizing:border-box; }
     body { background:white; }
@@ -223,7 +225,14 @@ function LabelPreview({ shipment }: { shipment: ShipmentForLabel }) {
           marginBottom: "3mm",
         }}
       >
-        <span style={{ fontSize: "8pt", fontWeight: "bold" }}>SISTEMA LOGÍSTICO</span>
+        <div style={{ display: "flex", alignItems: "baseline", gap: "2mm" }}>
+          <span style={{ fontSize: "7pt", color: "#555", fontWeight: "normal", letterSpacing: "0.3px" }}>
+            LOGÍSTICA
+          </span>
+          <span style={{ fontSize: "9pt", fontWeight: "bold", letterSpacing: "0.5px", color: "#1d4ed8" }}>
+            SLEEPBOX
+          </span>
+        </div>
         {shipment.orderNumber && (
           <span style={{ fontSize: "7pt", color: "#555" }}>#{shipment.orderNumber}</span>
         )}
@@ -254,7 +263,7 @@ function LabelPreview({ shipment }: { shipment: ShipmentForLabel }) {
         </>
       )}
 
-      {/* Productos — siempre visible */}
+      {/* Productos */}
       <p style={{ fontSize: "7pt", color: "#555", textTransform: "uppercase", letterSpacing: "0.5px", margin: "0 0 0.5mm" }}>PRODUCTOS</p>
       <p style={{ fontSize: "8pt", color: "#222", margin: "0 0 2.5mm", lineHeight: 1.3, whiteSpace: "pre-line" }}>
         {(shipment.products ?? "").trim() || "—"}

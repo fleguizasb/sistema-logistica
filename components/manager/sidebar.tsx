@@ -9,7 +9,7 @@ import {
   Printer,
   Users,
   AlertTriangle,
-  Package2,
+  Truck,
 } from "lucide-react";
 
 const navigation = [
@@ -49,10 +49,12 @@ export function Sidebar() {
       <div className="px-4 mb-6">
         <Link href="/dashboard" className="flex items-center gap-2.5 group">
           <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center shrink-0">
-            <Package2 className="w-4.5 h-4.5 text-white" strokeWidth={2.5} />
+            <Truck className="w-4 h-4 text-white" strokeWidth={2.5} />
           </div>
-          <span className="font-semibold text-gray-900 text-sm leading-tight">
-            Sistema<br />Logístico
+          <span className="font-bold text-sm leading-tight">
+            <span className="text-gray-500 font-normal">Logística</span>
+            <br />
+            <span className="text-blue-600 tracking-wide">SleepBox</span>
           </span>
         </Link>
       </div>
@@ -75,7 +77,7 @@ export function Sidebar() {
             >
               <item.icon
                 className={cn(
-                  "w-4.5 h-4.5 shrink-0",
+                  "w-4 h-4 shrink-0",
                   isActive ? "text-blue-600" : "text-gray-400"
                 )}
               />
