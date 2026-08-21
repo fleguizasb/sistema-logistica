@@ -26,13 +26,11 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         password: { label: "Contraseña", type: "password" },
       },
       authorize: async (credentials) => {
-        // Validar formato
         const parsed = loginSchema.safeParse(credentials);
         if (!parsed.success) return null;
 
         const { email, password } = parsed.data;
 
-        // Buscar usuario activo
         const user = await prisma.user.findFirst({
           where: { email, active: true },
           select: {
@@ -40,22 +38,22 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             email: true,
             name: true,
             role: true,
+            isOwner: true,
             passwordHash: true,
           },
         });
 
         if (!user) return null;
 
-        // Verificar contraseña
         const isValid = await bcrypt.compare(password, user.passwordHash);
         if (!isValid) return null;
 
-        // Retornar sin el hash de contraseña
         return {
           id: user.id,
           email: user.email,
           name: user.name,
           role: user.role,
+          isOwner: user.isOwner,
         };
       },
     }),

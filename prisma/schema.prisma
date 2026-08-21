@@ -52,6 +52,7 @@ model User {
   role         Role
   phone        String?
   active       Boolean @default(true)
+  isOwner      Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

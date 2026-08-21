@@ -10,38 +10,27 @@ import {
   Users,
   AlertTriangle,
   Truck,
+  ShieldCheck,
 } from "lucide-react";
 
-const navigation = [
-  {
-    label: "Dashboard",
-    href: "/dashboard",
-    icon: LayoutDashboard,
-  },
-  {
-    label: "Envíos",
-    href: "/shipments",
-    icon: Package,
-  },
-  {
-    label: "Etiquetas",
-    href: "/labels",
-    icon: Printer,
-  },
-  {
-    label: "Incidencias",
-    href: "/incidents",
-    icon: AlertTriangle,
-  },
-  {
-    label: "Choferes",
-    href: "/drivers",
-    icon: Users,
-  },
+const baseNavigation = [
+  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { label: "Envíos", href: "/shipments", icon: Package },
+  { label: "Etiquetas", href: "/labels", icon: Printer },
+  { label: "Incidencias", href: "/incidents", icon: AlertTriangle },
+  { label: "Choferes", href: "/drivers", icon: Users },
 ];
 
-export function Sidebar() {
+const ownerNavigation = [
+  { label: "Usuarios", href: "/admin", icon: ShieldCheck },
+];
+
+export function Sidebar({ isOwner = false }: { isOwner?: boolean }) {
   const pathname = usePathname();
+
+  const navigation = isOwner
+    ? [...baseNavigation, ...ownerNavigation]
+    : baseNavigation;
 
   return (
     <aside className="hidden md:flex flex-col w-60 min-h-screen bg-white border-r border-gray-200 py-4">
@@ -86,6 +75,16 @@ export function Sidebar() {
           );
         })}
       </nav>
+
+      {/* Indicador owner */}
+      {isOwner && (
+        <div className="px-4 py-3 border-t border-gray-100">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="w-3.5 h-3.5 text-blue-500" />
+            <span className="text-xs text-gray-400">Administrador</span>
+          </div>
+        </div>
+      )}
     </aside>
   );
 }

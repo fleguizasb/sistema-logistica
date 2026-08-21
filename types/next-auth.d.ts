@@ -1,8 +1,3 @@
-/**
- * Augmentación de tipos de NextAuth para incluir `role` e `id`
- * en Session y JWT sin casts manuales en el resto del código.
- */
-
 import { Role } from "@prisma/client";
 import type { DefaultSession } from "next-auth";
 
@@ -11,11 +6,13 @@ declare module "next-auth" {
     user: {
       id: string;
       role: Role;
+      isOwner: boolean;
     } & DefaultSession["user"];
   }
 
   interface User {
     role: Role;
+    isOwner: boolean;
   }
 }
 
@@ -23,5 +20,6 @@ declare module "next-auth/jwt" {
   interface JWT {
     id: string;
     role: Role;
+    isOwner: boolean;
   }
 }
