@@ -19,6 +19,7 @@ interface Shipment {
   province: string;
   status: ShipmentStatus;
   orderNumber: string | null;
+  products: string | null;
   source: string;
   createdAt: Date;
   assignedDriver: { id: string; name: string } | null;
@@ -41,6 +42,16 @@ const TABS: { value: string; label: string }[] = [
   { value: "ENTREGADO", label: "Entregados" },
   { value: "INCIDENCIA", label: "Incidencias" },
 ];
+
+// ─── Helper: extrae SKUs del campo products ───────────────────────────────────
+
+function extractSkus(products: string | null): string {
+  if (!products) return "";
+  const matches = [...products.matchAll(/\(SKU:\s*([^)]+)\)/gi)];
+  if (matches.length > 0) return matches.map((m) => m[1].trim()).join(", ");
+  // Si no hay formato SKU, devolver vacío
+  return "";
+}
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 
@@ -183,7 +194,6 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-100 bg-gray-50">
-                    {/* Checkbox "select all" */}
                     <th className="pl-4 pr-2 py-3 w-8">
                       <input
                         type="checkbox"
@@ -197,6 +207,9 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
                     </th>
                     <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
                       Destinatario
+                    </th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                      SKU
                     </th>
                     <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
                       Dirección
@@ -216,6 +229,7 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
                 <tbody className="divide-y divide-gray-100">
                   {filtered.map((s) => {
                     const isSelected = selectedIds.has(s.id);
+                    const skus = extractSkus(s.products);
                     return (
                       <tr
                         key={s.id}
@@ -224,7 +238,6 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
                         }`}
                         onClick={() => router.push(`/shipments/${s.id}`)}
                       >
-                        {/* Checkbox individual */}
                         <td className="pl-4 pr-2 py-3">
                           <input
                             type="checkbox"
@@ -238,6 +251,13 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
                           <p className="font-medium text-gray-900">{s.recipientName}</p>
                           {s.orderNumber && (
                             <p className="text-xs text-gray-400">#{s.orderNumber}</p>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          {skus ? (
+                            <p className="text-xs text-gray-500 font-mono">{skus}</p>
+                          ) : (
+                            <span className="text-gray-300">—</span>
                           )}
                         </td>
                         <td className="px-4 py-3 text-gray-600">
@@ -278,7 +298,6 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
                       isSelected ? "border-blue-300 bg-blue-50" : "border-gray-200"
                     }`}
                   >
-                    {/* Checkbox mobile */}
                     <input
                       type="checkbox"
                       checked={isSelected}

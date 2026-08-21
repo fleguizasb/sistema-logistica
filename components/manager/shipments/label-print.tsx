@@ -1,8 +1,8 @@
 "use client";
 
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import { confirmLabels } from "@/lib/actions/labels";
-import { Printer, CheckCircle2, ArrowLeft, Loader2 } from "lucide-react";
+import { Printer, CheckCircle2, ArrowLeft, Loader2, Plus, Minus } from "lucide-react";
 import Link from "next/link";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -36,31 +36,27 @@ function esc(s: string | null | undefined): string {
     .replace(/"/g, "&quot;");
 }
 
-// ─── HTML para la ventana de impresión ───────────────────────────────────────
+function buildLabelHtml(s: ShipmentForLabel): string {
+  const order = s.orderNumber
+    ? `<span style="font-size:7pt;color:#555">#${esc(s.orderNumber)}</span>`
+    : "";
 
-function buildPrintHtml(shipments: ShipmentForLabel[]): string {
-  const labelsHtml = shipments
-    .map((s) => {
-      const order = s.orderNumber
-        ? `<span style="font-size:7pt;color:#555">#${esc(s.orderNumber)}</span>`
-        : "";
+  const extra = s.addressExtra
+    ? `<p style="font-size:8pt;color:#444;margin:0 0 1mm">${esc(s.addressExtra)}</p>`
+    : "";
 
-      const extra = s.addressExtra
-        ? `<p style="font-size:8pt;color:#444;margin:0 0 1mm">${esc(s.addressExtra)}</p>`
-        : "";
+  const phone = s.recipientPhone
+    ? `<p style="font-size:7pt;color:#555;text-transform:uppercase;letter-spacing:.5px;margin:0 0 .5mm">TEL</p>
+       <p style="font-size:9pt;margin:0 0 2.5mm">${esc(s.recipientPhone)}</p>`
+    : "";
 
-      const phone = s.recipientPhone
-        ? `<p style="font-size:7pt;color:#555;text-transform:uppercase;letter-spacing:.5px;margin:0 0 .5mm">TEL</p>
-           <p style="font-size:9pt;margin:0 0 2.5mm">${esc(s.recipientPhone)}</p>`
-        : "";
+  const rawProducts = (s.products ?? "").trim();
+  const productDisplay = rawProducts || "—";
 
-      const rawProducts = (s.products ?? "").trim();
-      const productDisplay = rawProducts || "—";
+  const products = `<p style="font-size:7pt;color:#555;text-transform:uppercase;letter-spacing:.5px;margin:0 0 .5mm">PRODUCTOS</p>
+       <p style="font-size:8pt;color:#222;margin:0 0 2.5mm;line-height:1.3;white-space:pre-line">${esc(productDisplay)}</p>`;
 
-      const products = `<p style="font-size:7pt;color:#555;text-transform:uppercase;letter-spacing:.5px;margin:0 0 .5mm">PRODUCTOS</p>
-           <p style="font-size:8pt;color:#222;margin:0 0 2.5mm;line-height:1.3;white-space:pre-line">${esc(productDisplay)}</p>`;
-
-      return `
+  return `
 <div style="
   width:100mm;height:100mm;padding:5mm;
   display:flex;flex-direction:column;
@@ -69,7 +65,6 @@ function buildPrintHtml(shipments: ShipmentForLabel[]): string {
   background:white;
   page-break-after:always;break-after:page;
 ">
-  <!-- Header -->
   <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1.5px solid #000;padding-bottom:2mm;margin-bottom:3mm">
     <div style="display:flex;align-items:baseline;gap:2mm">
       <span style="font-size:7pt;color:#555;font-weight:normal;letter-spacing:.3px">LOGÍSTICA</span>
@@ -77,24 +72,26 @@ function buildPrintHtml(shipments: ShipmentForLabel[]): string {
     </div>
     ${order}
   </div>
-
-  <!-- Destinatario -->
   <p style="font-size:13pt;font-weight:bold;line-height:1.2;margin:0 0 2mm">${esc(s.recipientName)}</p>
-
-  <!-- Dirección -->
   <p style="font-size:9pt;font-weight:600;margin:0 0 .5mm;line-height:1.3">${esc(s.addressLine)}</p>
   ${extra}
   <p style="font-size:8.5pt;margin:0 0 2.5mm">${esc(s.city)}, ${esc(s.province)}${s.postalCode ? ` CP ${esc(s.postalCode)}` : ""}</p>
-
   ${phone}
   ${products}
-
-  <!-- Separador y tracking -->
   <div style="margin-top:auto;border-top:1px dashed #bbb;padding-top:2mm">
     <p style="font-size:6.5pt;color:#555;text-transform:uppercase;letter-spacing:.5px;margin:0 0 .5mm">SEGUIMIENTO</p>
     <p style="font-size:7pt;word-break:break-all;color:#333;margin:0;line-height:1.3">/seguimiento/${esc(s.trackingToken)}</p>
   </div>
 </div>`;
+}
+
+// ─── HTML para la ventana de impresión ───────────────────────────────────────
+
+function buildPrintHtml(shipments: ShipmentForLabel[], copies: Record<string, number>): string {
+  const labelsHtml = shipments
+    .flatMap((s) => {
+      const n = copies[s.id] ?? 1;
+      return Array.from({ length: n }, () => buildLabelHtml(s));
     })
     .join("\n");
 
@@ -117,9 +114,19 @@ function buildPrintHtml(shipments: ShipmentForLabel[]): string {
 
 export function LabelPrint({ shipments }: LabelPrintProps) {
   const [isPending, startTransition] = useTransition();
+  // Copias por envío: { [id]: número }
+  const [copies, setCopies] = useState<Record<string, number>>(
+    Object.fromEntries(shipments.map((s) => [s.id, 1]))
+  );
+
+  const totalLabels = shipments.reduce((sum, s) => sum + (copies[s.id] ?? 1), 0);
+
+  function setCopiesFor(id: string, value: number) {
+    setCopies((prev) => ({ ...prev, [id]: Math.max(1, Math.min(10, value)) }));
+  }
 
   function handlePrint() {
-    const html = buildPrintHtml(shipments);
+    const html = buildPrintHtml(shipments, copies);
     const win = window.open("", "_blank");
     if (!win) {
       alert("El navegador bloqueó la ventana emergente. Permití popups para este sitio e intentá de nuevo.");
@@ -134,7 +141,6 @@ export function LabelPrint({ shipments }: LabelPrintProps) {
 
   function handleConfirm() {
     startTransition(async () => {
-      // Desduplicar: si hay varias etiquetas del mismo envío, confirmar solo una vez
       const uniqueIds = [...new Set(shipments.map((s) => s.id))];
       await confirmLabels(uniqueIds);
     });
@@ -154,14 +160,10 @@ export function LabelPrint({ shipments }: LabelPrintProps) {
           </Link>
           <span className="text-gray-300">|</span>
           <p className="text-sm font-medium text-gray-900">
-            {shipments.length === 1 ? "1 etiqueta" : `${shipments.length} etiquetas`}
-            {/* Mostrar envíos únicos si difiere del total */}
-            {(() => {
-              const unique = new Set(shipments.map((s) => s.id)).size;
-              return unique < shipments.length ? (
-                <span className="text-gray-400 font-normal ml-1">({unique} envíos)</span>
-              ) : null;
-            })()}
+            {totalLabels === 1 ? "1 etiqueta" : `${totalLabels} etiquetas`}
+            {totalLabels !== shipments.length && (
+              <span className="text-gray-400 font-normal ml-1">({shipments.length} envíos)</span>
+            )}
           </p>
         </div>
 
@@ -190,16 +192,47 @@ export function LabelPrint({ shipments }: LabelPrintProps) {
 
       <div className="bg-blue-50 border-b border-blue-100 px-6 py-2">
         <p className="text-xs text-blue-700">
-          Hacé clic en <strong>Imprimir</strong> → se abre una ventana con las etiquetas → imprimí →
-          volvé acá y hacé clic en <strong>Confirmar impresión</strong>.
+          Ajustá las copias por envío → hacé clic en <strong>Imprimir</strong> → confirmá la impresión.
         </p>
       </div>
 
       {/* Previsualización */}
       <div className="flex-1 overflow-auto bg-gray-100 p-6">
-        <div className="space-y-4 max-w-fit mx-auto">
+        <div className="space-y-6 max-w-fit mx-auto">
           {shipments.map((s) => (
-            <LabelPreview key={s.id} shipment={s} />
+            <div key={s.id} className="flex flex-col items-center gap-2">
+              {/* Selector de copias */}
+              <div className="flex items-center gap-3 bg-white rounded-lg border border-gray-200 px-4 py-2 shadow-sm">
+                <span className="text-sm text-gray-600 font-medium truncate max-w-[160px]">
+                  {s.recipientName}
+                </span>
+                <div className="flex items-center gap-2 ml-2">
+                  <button
+                    onClick={() => setCopiesFor(s.id, (copies[s.id] ?? 1) - 1)}
+                    disabled={(copies[s.id] ?? 1) <= 1}
+                    className="w-6 h-6 rounded-full flex items-center justify-center border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <Minus className="w-3 h-3" />
+                  </button>
+                  <span className="text-sm font-semibold text-gray-900 w-5 text-center">
+                    {copies[s.id] ?? 1}
+                  </span>
+                  <button
+                    onClick={() => setCopiesFor(s.id, (copies[s.id] ?? 1) + 1)}
+                    disabled={(copies[s.id] ?? 1) >= 10}
+                    className="w-6 h-6 rounded-full flex items-center justify-center border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <Plus className="w-3 h-3" />
+                  </button>
+                  <span className="text-xs text-gray-400 ml-1">
+                    {(copies[s.id] ?? 1) === 1 ? "copia" : "copias"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Etiqueta preview */}
+              <LabelPreview shipment={s} />
+            </div>
           ))}
         </div>
       </div>
