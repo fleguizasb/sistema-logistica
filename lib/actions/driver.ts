@@ -106,7 +106,7 @@ export async function startRoute(shipmentIds: string[]): Promise<ActionResult> {
     coordinates: s.lat != null && s.lng != null ? { lat: s.lat, lng: s.lng } : null,
   }));
 
-  const optimizedRoute = activeOptimizer.optimize(stops);
+  const optimizedRoute = await activeOptimizer.optimize(stops);
   const orderedStops = optimizedRoute.stops;
 
   // Construir URL de Google Maps
@@ -141,13 +141,15 @@ export async function startRoute(shipmentIds: string[]): Promise<ActionResult> {
     }
 
     // Crear registro de ruta
+    // Usamos `shipments` (no orderedStops) para garantizar que shipmentId nunca sea undefined,
+    // ya que Stop no incluye `id` en su tipo y podría perderse en ciertos contextos.
     await tx.route.create({
       data: {
         driverId,
         startedAt: new Date(),
         items: {
-          create: orderedStops.map((stop, index) => ({
-            shipmentId: stop.id,
+          create: shipments.map((s, index) => ({
+            shipmentId: s.id,
             deliveryOrder: index + 1,
             segment: Math.floor(index / 8) + 1,
           })),
