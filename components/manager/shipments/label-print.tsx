@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { confirmLabels } from "@/lib/actions/labels";
-import { Printer, CheckCircle2, ArrowLeft, Loader2, Plus, Minus } from "lucide-react";
+import { Printer, ArrowLeft, Loader2, Plus, Minus } from "lucide-react";
 import Link from "next/link";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -143,9 +143,8 @@ export function LabelPrint({ shipments, initialCopies }: LabelPrintProps) {
     win.document.close();
     win.addEventListener("load", () => setTimeout(() => win.print(), 250));
     setTimeout(() => { if (!win.closed) win.print(); }, 700);
-  }
 
-  function handleConfirm() {
+    // Confirmar impresión automáticamente al imprimir
     startTransition(async () => {
       const uniqueIds = [...new Set(shipments.map((s) => s.id))];
       await confirmLabels(uniqueIds);
@@ -173,25 +172,18 @@ export function LabelPrint({ shipments, initialCopies }: LabelPrintProps) {
         <div className="flex gap-3">
           <button
             onClick={handlePrint}
-            className="flex items-center gap-2 bg-white border border-gray-200 text-gray-700 text-sm font-medium px-4 h-9 rounded-md hover:bg-gray-50 transition-colors"
-          >
-            <Printer className="w-4 h-4" />
-            Imprimir
-          </button>
-          <button
-            onClick={handleConfirm}
             disabled={isPending}
             className="flex items-center gap-2 bg-blue-600 text-white text-sm font-medium px-4 h-9 rounded-md hover:bg-blue-700 disabled:opacity-60 transition-colors"
           >
-            {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-            Confirmar impresión
+            {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
+            Imprimir etiquetas
           </button>
         </div>
       </div>
 
       <div className="bg-blue-50 border-b border-blue-100 px-6 py-2">
         <p className="text-xs text-blue-700">
-          Ajustá las copias → <strong>Imprimir</strong> → <strong>Confirmar impresión</strong>.
+          Ajustá las copias y presioná <strong>Imprimir etiquetas</strong>. Los envíos pasarán a <strong>Listo para enviar</strong> automáticamente.
         </p>
       </div>
 
