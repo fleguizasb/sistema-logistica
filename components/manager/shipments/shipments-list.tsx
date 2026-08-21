@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Package, Plus, Search, ChevronRight, FileUp, Printer, X, CheckCircle2, Loader2, Trash2, Minus } from "lucide-react";
+import { Package, Plus, Search, ChevronRight, FileUp, Printer, X, CheckCircle2, Loader2, Trash2, Minus, Copy, Check } from "lucide-react";
 import { StatusBadge } from "@/components/ui/badge";
 import { ShipmentStatus } from "@prisma/client";
 import { markAsReady } from "@/lib/actions/labels";
@@ -19,6 +19,7 @@ interface Shipment {
   province: string;
   status: ShipmentStatus;
   orderNumber: string | null;
+  trackingToken: string;
   products: string | null;
   source: string;
   createdAt: Date;
@@ -59,7 +60,17 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
   const [search, setSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [copies, setCopies] = useState<Record<string, number>>({});
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  function handleCopy(e: React.MouseEvent, token: string, id: string) {
+    e.stopPropagation();
+    const url = `${window.location.origin}/seguimiento/${token}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 1500);
+    });
+  }
 
   const filtered = shipments.filter(
     (s) =>
@@ -308,7 +319,19 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
                         <td className="px-4 py-3 text-gray-400 text-xs">
                           {new Date(s.createdAt).toLocaleDateString("es-AR")}
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-2 py-3" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            onClick={(e) => handleCopy(e, s.trackingToken, s.id)}
+                            title="Copiar link de seguimiento"
+                            className="w-7 h-7 flex items-center justify-center rounded-md text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                          >
+                            {copiedId === s.id
+                              ? <Check className="w-3.5 h-3.5 text-green-500" />
+                              : <Copy className="w-3.5 h-3.5" />
+                            }
+                          </button>
+                        </td>
+                        <td className="pr-3 py-3">
                           <ChevronRight className="w-4 h-4 text-gray-300" />
                         </td>
                       </tr>
@@ -356,7 +379,19 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
                         <p className="text-xs text-gray-500 truncate">{s.addressLine}, {s.city}</p>
                         <div className="mt-2"><StatusBadge status={s.status} /></div>
                       </div>
-                      <ChevronRight className="w-4 h-4 text-gray-300 shrink-0 ml-3" />
+                      <div className="flex items-center gap-1 shrink-0 ml-2">
+                        <button
+                          onClick={(e) => handleCopy(e, s.trackingToken, s.id)}
+                          title="Copiar link de seguimiento"
+                          className="w-7 h-7 flex items-center justify-center rounded-md text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                        >
+                          {copiedId === s.id
+                            ? <Check className="w-3.5 h-3.5 text-green-500" />
+                            : <Copy className="w-3.5 h-3.5" />
+                          }
+                        </button>
+                        <ChevronRight className="w-4 h-4 text-gray-300" />
+                      </div>
                     </Link>
                   </div>
                 );
