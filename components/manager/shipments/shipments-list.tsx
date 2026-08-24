@@ -48,8 +48,14 @@ const TABS: { value: string; label: string }[] = [
 
 function extractSkus(products: string | null): string {
   if (!products) return "";
-  const matches = [...products.matchAll(/\(SKU:\s*([^)]+)\)/gi)];
-  if (matches.length > 0) return matches.map((m) => m[1].trim()).join(", ");
+  const matches = [...products.matchAll(/\(SKU:\s*([^,)]+)(?:,\s*qty:\s*(\d+))?\)/gi)];
+  if (matches.length > 0) {
+    return matches.map((m) => {
+      const sku = m[1].trim();
+      const qty = m[2] ? parseInt(m[2], 10) : 1;
+      return qty > 1 ? `${sku} ×${qty}` : sku;
+    }).join(", ");
+  }
   return "";
 }
 

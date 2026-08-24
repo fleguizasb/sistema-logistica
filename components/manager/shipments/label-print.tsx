@@ -37,11 +37,21 @@ function esc(s: string | null | undefined): string {
     .replace(/"/g, "&quot;");
 }
 
-/** Extrae solo los códigos SKU del campo products */
+/** Extrae SKUs con su cantidad del campo products.
+ *  Formatos soportados:
+ *    "Nombre (SKU: CODIGO)"           → "CODIGO"
+ *    "Nombre (SKU: CODIGO, qty: 2)"   → "CODIGO ×2"
+ */
 function extractSkusOnly(products: string | null): string {
   if (!products) return "—";
-  const matches = [...products.matchAll(/\(SKU:\s*([^)]+)\)/gi)];
-  if (matches.length > 0) return matches.map((m) => m[1].trim()).join("\n");
+  const matches = [...products.matchAll(/\(SKU:\s*([^,)]+)(?:,\s*qty:\s*(\d+))?\)/gi)];
+  if (matches.length > 0) {
+    return matches.map((m) => {
+      const sku = m[1].trim();
+      const qty = m[2] ? parseInt(m[2], 10) : 1;
+      return qty > 1 ? `${sku} ×${qty}` : sku;
+    }).join("\n");
+  }
   // Si no hay formato SKU, mostrar el texto completo como fallback
   return products.trim() || "—";
 }

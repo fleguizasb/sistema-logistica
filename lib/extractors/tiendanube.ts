@@ -3,7 +3,9 @@
  * El PDF puede contener múltiples órdenes en una sola página.
  *
  * Estrategias de extracción de productos (en orden de prioridad):
- *   1. Ancla por SKU: busca "SKU:" y toma la línea anterior como nombre
+ *   1. Ancla por SKU: busca "SKU:" y toma la línea anterior como nombre.
+ *      También captura la cantidad: número en i-2 (antes del nombre) o i+1 (después del SKU).
+ *      Formato de salida: "Nombre (SKU: CODIGO)" o "Nombre (SKU: CODIGO, qty: N)"
  *   2. Sección "Producto(s)": captura entre el header y Subtotal/Total
  *   3. Zona intermedia: todo entre la fecha y "Enviar a:", filtrando basura
  */
@@ -32,41 +34,62 @@ export function extractTiendaNube(text: string): ExtractedShipment[] {
   return results;
 }
 
+/** Devuelve true si el número es una cantidad razonable (1–99) y no un precio ni año */
+function isQuantity(s: string): boolean {
+  if (!/^\d+$/.test(s)) return false;
+  const n = parseInt(s, 10);
+  return n >= 1 && n <= 99;
+}
+
 function extractProducts(block: string): string | undefined {
   // Sección antes de "Enviar a:" es donde están los productos
   const enviarIdx = block.indexOf("Enviar a:");
   const headerSection = enviarIdx > -1 ? block.slice(0, enviarIdx) : block;
 
   // ── Estrategia 1: ancla por "SKU:" ─────────────────────────────────────────
-  // TiendaNube siempre incluye "SKU: CODIGO" debajo del nombre del producto
+  // TiendaNube siempre incluye "SKU: CODIGO" debajo del nombre del producto.
+  // La cantidad puede estar:
+  //   - Dos líneas antes del SKU (i-2): [qty] → [nombre] → SKU: ...
+  //   - Una línea después del SKU (i+1):          [nombre] → SKU: ... → [qty]
   const lines = headerSection.split("\n").map((l) => l.trim());
   const productItems: string[] = [];
-  const seen = new Set<string>();
+  const seenSkus = new Set<string>();
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    // Buscar líneas que empiezan con "SKU:"
-    if (/^SKU:/i.test(line)) {
-      const sku = line.replace(/^SKU:\s*/i, "").trim();
-      // La línea anterior debería ser el nombre del producto
-      const prevLine = i > 0 ? lines[i - 1].trim() : "";
-      const isProductName =
-        prevLine.length > 2 &&
-        !prevLine.match(/^\d+$/) &&
-        !prevLine.match(/^Cant\.?$/i) &&
-        !prevLine.match(/^Producto/i) &&
-        !prevLine.match(/^Orden/i) &&
-        !prevLine.match(/^Realizada/i);
+    if (!/^SKU:/i.test(line)) continue;
 
-      const entry = isProductName
-        ? `${prevLine} (SKU: ${sku})`
-        : `SKU: ${sku}`;
+    const sku = line.replace(/^SKU:\s*/i, "").trim();
+    if (!sku || seenSkus.has(sku)) continue;
 
-      if (!seen.has(entry)) {
-        seen.add(entry);
-        productItems.push(entry);
-      }
+    // Nombre: línea anterior al SKU
+    const prevLine = i > 0 ? lines[i - 1].trim() : "";
+    const isProductName =
+      prevLine.length > 2 &&
+      !prevLine.match(/^\d+$/) &&
+      !/^Cant\.?$/i.test(prevLine) &&
+      !/^Producto/i.test(prevLine) &&
+      !/^Orden/i.test(prevLine) &&
+      !/^Realizada/i.test(prevLine);
+
+    // Cantidad: buscar número en i-2 (antes del nombre) o en i+1 (después del SKU)
+    let qty = 1;
+    const twoBack = i > 1 ? lines[i - 2].trim() : "";
+    const oneForward = i < lines.length - 1 ? lines[i + 1].trim() : "";
+
+    if (isQuantity(twoBack)) {
+      qty = parseInt(twoBack, 10);
+    } else if (isQuantity(oneForward)) {
+      qty = parseInt(oneForward, 10);
     }
+
+    const skuField = qty > 1 ? `SKU: ${sku}, qty: ${qty}` : `SKU: ${sku}`;
+    const entry = isProductName
+      ? `${prevLine} (${skuField})`
+      : `(${skuField})`;
+
+    seenSkus.add(sku);
+    productItems.push(entry);
   }
 
   if (productItems.length > 0) return productItems.join("\n");
@@ -91,7 +114,9 @@ function extractProducts(block: string): string | undefined {
   }
 
   // ── Estrategia 3: zona entre fecha y subtotal, filtrar basura ──────────────
-  const fechaMatch = headerSection.match(/Realizada el[^\n]*\n([\s\S]*?)(?:subtotal|medio de pago|envío:)/i);
+  const fechaMatch = headerSection.match(
+    /Realizada el[^\n]*\n([\s\S]*?)(?:subtotal|medio de pago|envío:)/i
+  );
   if (fechaMatch) {
     const zone = fechaMatch[1]
       .split("\n")
@@ -142,7 +167,6 @@ function parseOrderBlock(block: string): ExtractedShipment | null {
     .filter((l) => l);
 
   // ── Nombre del destinatario ───────────────────────────────────────────────────
-  // Primer token que no sea número ni "Cant."
   let recipientName = "";
   let nameIdx = 0;
   for (let i = 0; i < deliveryLines.length; i++) {
@@ -174,14 +198,10 @@ function parseOrderBlock(block: string): ExtractedShipment | null {
   for (let i = startIdx; i < deliveryLines.length; i++) {
     const line = deliveryLines[i];
 
-    // Ignorar artefactos del PDF
     if (line.startsWith("DNI:")) continue;
     if (line === "Cant." || line.match(/^\d+$/)) continue;
-
-    // Fin de sección
     if (line === "Argentina") break;
 
-    // Línea de ciudad/provincia/CP: "Ciudad, Provincia, XXXXX"
     if (line.match(/^.+,\s*.+,\s*\d{3,5}\s*$/)) {
       cityLine = line;
       break;
