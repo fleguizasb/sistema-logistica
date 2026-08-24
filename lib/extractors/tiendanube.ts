@@ -2,15 +2,21 @@
  * Extractor de etiquetas de Tienda Nube.
  * El PDF puede contener múltiples órdenes en una sola página.
  *
- * Estructura real del PDF de Tienda Nube:
- *   - Los productos y SKUs aparecen juntos en la sección de detalle.
- *   - Las cantidades ("Cant.") aparecen en un bloque SEPARADO, a veces antes
- *     de "Enviar a:" y a veces después de la dirección. No están junto a los SKUs.
- *   - Las cantidades se mapean por ÍNDICE: qty[0] → producto[0], qty[1] → producto[1], etc.
+ * Estructura real del PDF según pdf-parse (la librería usada por la app):
+ *   - "Producto" y "Cant." se fusionan en una sola línea: "ProductoCant."
+ *   - La cantidad de cada producto aparece en la línea INMEDIATA después de su SKU.
+ *   - Ejemplo por bloque:
+ *       "ProductoCant."
+ *       "Nombre del producto"
+ *       "SKU: CODIGO"
+ *       "2"           ← cantidad del producto anterior
+ *       "Nombre del producto 2"
+ *       "SKU: CODIGO2"
+ *       "1"           ← cantidad del producto anterior
  *
  * Estrategias de extracción de productos (en orden de prioridad):
  *   1. Ancla por SKU: busca "SKU:" y toma la línea anterior como nombre.
- *      Cantidades extraídas del bloque "Cant." y mapeadas por posición.
+ *      La cantidad está en la línea siguiente al SKU (i+1).
  *      Formato de salida: "Nombre (SKU: CODIGO)" o "Nombre (SKU: CODIGO, qty: N)"
  *   2. Sección "Producto(s)": captura entre el header y Subtotal/Total
  *   3. Zona intermedia: todo entre la fecha y "Enviar a:", filtrando basura
@@ -40,49 +46,17 @@ export function extractTiendaNube(text: string): ExtractedShipment[] {
   return results;
 }
 
-/**
- * Busca el bloque "Cant." en el bloque completo de la orden y extrae
- * las cantidades en orden. Las cantidades están en líneas separadas,
- * con líneas vacías entre ellas, y el bloque termina al encontrar
- * la primera línea no vacía que no sea un número entero.
- */
-function extractQuantities(block: string): number[] {
-  const cantIdx = block.indexOf("Cant.");
-  if (cantIdx === -1) return [];
-
-  const afterCant = block.slice(cantIdx + "Cant.".length);
-  const quantities: number[] = [];
-
-  for (const line of afterCant.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed) continue; // ignorar líneas vacías
-    if (/^\d+$/.test(trimmed)) {
-      const n = parseInt(trimmed, 10);
-      if (n >= 1 && n <= 99) {
-        quantities.push(n);
-      } else {
-        break; // número fuera de rango razonable, detener
-      }
-    } else {
-      break; // primera línea no vacía que no es número → fin del bloque Cant.
-    }
-  }
-
-  return quantities;
-}
-
-function extractProducts(block: string, quantities: number[]): string | undefined {
+function extractProducts(block: string): string | undefined {
   // Sección antes de "Enviar a:" es donde están los productos
   const enviarIdx = block.indexOf("Enviar a:");
   const headerSection = enviarIdx > -1 ? block.slice(0, enviarIdx) : block;
 
   // ── Estrategia 1: ancla por "SKU:" ─────────────────────────────────────────
-  // TiendaNube siempre incluye "SKU: CODIGO" debajo del nombre del producto.
-  // Las cantidades vienen del bloque "Cant." separado, mapeadas por índice.
+  // pdf-parse pone la cantidad en la línea inmediata SIGUIENTE al SKU.
+  // No usar lines[i-2] (twoBack) porque ese número es la qty del producto ANTERIOR.
   const lines = headerSection.split("\n").map((l) => l.trim());
   const productItems: string[] = [];
   const seenSkus = new Set<string>();
-  let productIndex = 0;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -97,12 +71,19 @@ function extractProducts(block: string, quantities: number[]): string | undefine
       prevLine.length > 2 &&
       !prevLine.match(/^\d+$/) &&
       !/^Cant\.?$/i.test(prevLine) &&
+      !/^ProductoCant\.?$/i.test(prevLine) &&
       !/^Producto/i.test(prevLine) &&
       !/^Orden/i.test(prevLine) &&
       !/^Realizada/i.test(prevLine);
 
-    // Cantidad: usar la posición del producto en el array de cantidades
-    const qty = quantities[productIndex] ?? 1;
+    // Cantidad: línea SIGUIENTE al SKU
+    // En pdf-parse, la qty queda justo después del SKU en el texto linearizado.
+    let qty = 1;
+    const nextLine = i < lines.length - 1 ? lines[i + 1].trim() : "";
+    if (/^\d+$/.test(nextLine)) {
+      const n = parseInt(nextLine, 10);
+      if (n >= 1 && n <= 99) qty = n;
+    }
 
     const skuField = qty > 1 ? `SKU: ${sku}, qty: ${qty}` : `SKU: ${sku}`;
     const entry = isProductName
@@ -111,7 +92,6 @@ function extractProducts(block: string, quantities: number[]): string | undefine
 
     seenSkus.add(sku);
     productItems.push(entry);
-    productIndex++;
   }
 
   if (productItems.length > 0) return productItems.join("\n");
@@ -165,11 +145,8 @@ function parseOrderBlock(block: string): ExtractedShipment | null {
   if (!orderMatch) return null;
   const orderNumber = orderMatch[1];
 
-  // ── Cantidades (bloque Cant. separado, mapeadas por índice) ──────────────────
-  const quantities = extractQuantities(block);
-
   // ── Productos ─────────────────────────────────────────────────────────────────
-  const products = extractProducts(block, quantities);
+  const products = extractProducts(block);
 
   // ── Notas del cliente ─────────────────────────────────────────────────────────
   let notes: string | undefined;
