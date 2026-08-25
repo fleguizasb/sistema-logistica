@@ -129,14 +129,8 @@ function buildLabelHtml(s: ShipmentForLabel): string {
 </div>`;
 }
 
-// ─── Hoja de preparación ──────────────────────────────────────────────────────
+// ─── Hoja de preparación (B&N, estilo planilla de depósito) ──────────────────
 
-/**
- * Genera la hoja de preparación (última página, A4).
- * Agrega los SKUs de todos los envíos × copias y muestra:
- *   1. Tabla de SKUs totales a preparar
- *   2. Detalle por envío
- */
 function buildSummaryHtml(shipments: ShipmentForLabel[], copies: Record<string, number>): string {
   // Agregar SKUs multiplicando por cantidad de copias
   const skuMap = new Map<string, { name: string; qty: number }>();
@@ -154,83 +148,99 @@ function buildSummaryHtml(shipments: ShipmentForLabel[], copies: Record<string, 
     }
   }
 
-  const skuRows = [...skuMap.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
+  const sortedSkus = [...skuMap.entries()].sort(([a], [b]) => a.localeCompare(b));
+  const totalUnidades = sortedSkus.reduce((sum, [, { qty }]) => sum + qty, 0);
+  const totalLabels = shipments.reduce((sum, s) => sum + (copies[s.id] ?? 1), 0);
+
+  const now = new Date();
+  const dateStr = now.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
+  const timeStr = now.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+
+  // ── Tabla picking: SKU | Descripción | Cant. | ✓ ──────────────────────────
+  const skuRows = sortedSkus
     .map(([sku, { name, qty }], i) => `
-      <tr style="background:${i % 2 === 0 ? "#fff" : "#f9fafb"}">
-        <td style="padding:2.5mm 3mm;border:1px solid #e5e7eb;font-weight:bold">${esc(sku)}</td>
-        <td style="padding:2.5mm 3mm;border:1px solid #e5e7eb">${esc(name)}</td>
-        <td style="padding:2.5mm 3mm;border:1px solid #e5e7eb;text-align:center;font-size:12pt;font-weight:bold;color:#1d4ed8">${qty}</td>
+      <tr style="background:${i % 2 === 0 ? "#fff" : "#f0f0f0"}">
+        <td style="padding:3mm 3mm;border:1.5px solid #000;width:8mm;min-height:8mm">&nbsp;</td>
+        <td style="padding:3mm 4mm;border:1.5px solid #000;font-family:monospace;font-size:11pt;font-weight:bold;letter-spacing:.5px;width:38%">${esc(sku)}</td>
+        <td style="padding:3mm 4mm;border:1.5px solid #000;font-size:10pt">${esc(name)}</td>
+        <td style="padding:3mm 4mm;border:1.5px solid #000;text-align:center;font-size:16pt;font-weight:bold;width:14%">${qty}</td>
       </tr>`)
     .join("");
 
+  // ── Tabla detalle envíos ──────────────────────────────────────────────────
   const shipmentRows = shipments
     .map((s, i) => {
       const c = copies[s.id] ?? 1;
       const items = parseProducts(s.products);
-      const productStr = items
+      const skuStr = items
         .map((item) =>
           item.sku
             ? item.qty > 1 ? `${item.sku} ×${item.qty}` : item.sku
             : item.name
         )
-        .join(", ");
+        .join("  /  ");
       return `
-        <tr style="background:${i % 2 === 0 ? "#fff" : "#f9fafb"}">
-          <td style="padding:2mm 3mm;border:1px solid #e5e7eb;font-weight:600">${esc(s.recipientName)}</td>
-          <td style="padding:2mm 3mm;border:1px solid #e5e7eb">${esc(s.city)}</td>
-          <td style="padding:2mm 3mm;border:1px solid #e5e7eb;font-size:8pt">${esc(productStr || "—")}</td>
-          <td style="padding:2mm 3mm;border:1px solid #e5e7eb;text-align:center;font-weight:bold">${c}</td>
+        <tr style="background:${i % 2 === 0 ? "#fff" : "#f0f0f0"}">
+          <td style="padding:2mm 3mm;border:1px solid #555;font-weight:bold;font-size:9pt">${esc(s.recipientName)}</td>
+          <td style="padding:2mm 3mm;border:1px solid #555;font-size:9pt">${esc(s.city)}</td>
+          <td style="padding:2mm 3mm;border:1px solid #555;font-family:monospace;font-size:8.5pt">${esc(skuStr || "—")}</td>
+          <td style="padding:2mm 3mm;border:1px solid #555;text-align:center;font-weight:bold;font-size:9pt">${c}</td>
         </tr>`;
     })
     .join("");
 
-  const totalLabels = shipments.reduce((sum, s) => sum + (copies[s.id] ?? 1), 0);
-  const now = new Date();
-  const dateStr = now.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
-  const timeStr = now.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
-
   return `
-<div class="summary-page">
-  <!-- Encabezado -->
-  <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2.5px solid #1d4ed8;padding-bottom:4mm;margin-bottom:6mm">
-    <div>
-      <div style="display:flex;align-items:baseline;gap:2mm;margin-bottom:1.5mm">
-        <span style="font-size:9pt;color:#555;font-weight:normal;letter-spacing:.3px">LOGÍSTICA</span>
-        <span style="font-size:13pt;font-weight:bold;letter-spacing:.5px;color:#1d4ed8">SLEEPBOX</span>
-      </div>
-      <h1 style="font-size:18pt;font-weight:bold;color:#111;margin:0;line-height:1">Hoja de Preparación</h1>
-    </div>
-    <div style="text-align:right;font-size:8.5pt;color:#555;line-height:1.6">
-      <p style="margin:0">${dateStr} — ${timeStr}</p>
-      <p style="margin:0;font-weight:bold;color:#111">${shipments.length} envío${shipments.length !== 1 ? "s" : ""} · ${totalLabels} etiqueta${totalLabels !== 1 ? "s" : ""}</p>
-    </div>
-  </div>
+<div class="summary-page" style="font-family:Arial,Helvetica,sans-serif;color:#000">
 
-  <!-- Tabla 1: SKUs a preparar -->
-  <h2 style="font-size:10pt;font-weight:bold;color:#1d4ed8;margin:0 0 3mm;text-transform:uppercase;letter-spacing:.8px">▸ SKUs a preparar</h2>
-  <table style="width:100%;border-collapse:collapse;font-size:9.5pt;margin-bottom:8mm">
+  <!-- Encabezado -->
+  <table style="width:100%;border-collapse:collapse;margin-bottom:5mm;border-bottom:3px solid #000;padding-bottom:3mm">
+    <tr>
+      <td style="vertical-align:top">
+        <div style="font-size:8pt;font-weight:normal;letter-spacing:1px;text-transform:uppercase">LOGÍSTICA SLEEPBOX</div>
+        <div style="font-size:20pt;font-weight:bold;line-height:1;margin-top:1mm">HOJA DE PREPARACIÓN</div>
+      </td>
+      <td style="vertical-align:top;text-align:right;font-size:9pt;line-height:1.8">
+        <div><strong>${dateStr}</strong> — ${timeStr}</div>
+        <div>${shipments.length} envío${shipments.length !== 1 ? "s" : ""} &nbsp;·&nbsp; ${totalLabels} etiqueta${totalLabels !== 1 ? "s" : ""}</div>
+        <div>Operario: ______________________</div>
+      </td>
+    </tr>
+  </table>
+
+  <!-- Sección 1: Picking -->
+  <div style="font-size:9pt;font-weight:bold;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid #000;padding-bottom:1mm;margin-bottom:2mm">
+    1 — SKUs a preparar
+  </div>
+  <table style="width:100%;border-collapse:collapse;margin-bottom:3mm">
     <thead>
-      <tr style="background:#1d4ed8;color:white">
-        <th style="text-align:left;padding:2.5mm 3mm;width:28%">SKU</th>
-        <th style="text-align:left;padding:2.5mm 3mm">Descripción</th>
-        <th style="text-align:center;padding:2.5mm 3mm;width:14%">Cant.</th>
+      <tr style="background:#000;color:#fff">
+        <th style="padding:2mm 3mm;font-size:9pt;text-align:center;width:8mm">✓</th>
+        <th style="padding:2mm 4mm;font-size:9pt;text-align:left;width:38%">SKU</th>
+        <th style="padding:2mm 4mm;font-size:9pt;text-align:left">Descripción / Variante</th>
+        <th style="padding:2mm 4mm;font-size:9pt;text-align:center;width:14%">CANT.</th>
       </tr>
     </thead>
     <tbody>
-      ${skuRows || `<tr><td colspan="3" style="padding:4mm;color:#888;text-align:center;border:1px solid #e5e7eb">Sin SKUs registrados</td></tr>`}
+      ${skuRows || `<tr><td colspan="4" style="padding:4mm;text-align:center;border:1px solid #000;font-style:italic">Sin SKUs registrados</td></tr>`}
+      <!-- Fila total -->
+      <tr style="border-top:2px solid #000">
+        <td colspan="3" style="padding:2.5mm 4mm;font-weight:bold;font-size:10pt;text-align:right;border:1.5px solid #000">TOTAL UNIDADES</td>
+        <td style="padding:2.5mm 4mm;font-weight:bold;font-size:16pt;text-align:center;border:1.5px solid #000">${totalUnidades}</td>
+      </tr>
     </tbody>
   </table>
 
-  <!-- Tabla 2: Detalle por envío -->
-  <h2 style="font-size:10pt;font-weight:bold;color:#1d4ed8;margin:0 0 3mm;text-transform:uppercase;letter-spacing:.8px">▸ Detalle por envío</h2>
-  <table style="width:100%;border-collapse:collapse;font-size:9pt">
+  <!-- Sección 2: Detalle por envío -->
+  <div style="font-size:9pt;font-weight:bold;text-transform:uppercase;letter-spacing:1px;border-bottom:2px solid #000;padding-bottom:1mm;margin-bottom:2mm;margin-top:5mm">
+    2 — Detalle por envío
+  </div>
+  <table style="width:100%;border-collapse:collapse">
     <thead>
-      <tr style="background:#f3f4f6;color:#111">
-        <th style="text-align:left;padding:2mm 3mm;border:1px solid #d1d5db;width:28%">Destinatario</th>
-        <th style="text-align:left;padding:2mm 3mm;border:1px solid #d1d5db;width:20%">Ciudad</th>
-        <th style="text-align:left;padding:2mm 3mm;border:1px solid #d1d5db">Productos</th>
-        <th style="text-align:center;padding:2mm 3mm;border:1px solid #d1d5db;width:12%">Etiq.</th>
+      <tr style="background:#ddd;color:#000">
+        <th style="padding:2mm 3mm;font-size:8.5pt;text-align:left;border:1px solid #555;width:30%">Destinatario</th>
+        <th style="padding:2mm 3mm;font-size:8.5pt;text-align:left;border:1px solid #555;width:18%">Ciudad</th>
+        <th style="padding:2mm 3mm;font-size:8.5pt;text-align:left;border:1px solid #555">SKUs</th>
+        <th style="padding:2mm 3mm;font-size:8.5pt;text-align:center;border:1px solid #555;width:10%">Etiq.</th>
       </tr>
     </thead>
     <tbody>
@@ -262,9 +272,13 @@ function buildPrintHtml(shipments: ShipmentForLabel[], copies: Record<string, nu
     @page labels { size:100mm 100mm; margin:0; }
     .label { page:labels; break-after:page; }
 
-    /* Hoja de preparación: A4 con márgenes normales */
-    @page summary { size:A4; margin:15mm 18mm; }
+    /* Hoja de preparación: A4, márgenes amplios para impresora B&N */
+    @page summary { size:A4; margin:12mm 14mm; }
     .summary-page { page:summary; break-before:page; }
+    /* Forzar B&N: eliminar fondos de color en impresión */
+    @media print {
+      * { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    }
   </style>
 </head>
 <body>
