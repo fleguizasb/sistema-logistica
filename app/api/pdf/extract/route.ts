@@ -10,6 +10,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
 
+  let text = "";
+
   try {
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
@@ -30,21 +32,42 @@ export async function POST(req: NextRequest) {
 
     const buffer = Buffer.from(await file.arrayBuffer());
 
-    // Usar require para evitar el bug del archivo de test de pdf-parse en Next.js
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const pdfParse = require("pdf-parse/lib/pdf-parse");
-    const data = await pdfParse(buffer);
-    const text: string = data.text;
+    // ── Paso 1: parsear PDF ────────────────────────────────────────────────────
+    try {
+      // Usar require para evitar el bug del archivo de test de pdf-parse en Next.js
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const pdfParse = require("pdf-parse/lib/pdf-parse");
+      const data = await pdfParse(buffer);
+      text = data.text ?? "";
+    } catch (parseErr: any) {
+      const msg = parseErr?.message ?? String(parseErr);
+      console.error("pdf-parse error:", parseErr);
+      return NextResponse.json(
+        { error: `Error leyendo el PDF: ${msg}` },
+        { status: 500 }
+      );
+    }
 
-    const result = detectAndExtract(text);
+    // ── Paso 2: detectar formato y extraer ─────────────────────────────────────
+    let result;
+    try {
+      result = detectAndExtract(text);
+    } catch (extractErr: any) {
+      const msg = extractErr?.message ?? String(extractErr);
+      console.error("Extraction error:", extractErr);
+      return NextResponse.json(
+        { error: `Error extrayendo datos: ${msg}` },
+        { status: 500 }
+      );
+    }
 
-    // LOG TEMPORAL para debug — ver en Vercel Function Logs
-    console.log("=== PDF RAW TEXT (primeros 3000 chars) ===");
-    console.log(JSON.stringify(text.slice(0, 3000)));
-    console.log("=== RESULT ===");
-    console.log(JSON.stringify(result.shipments.map(s => ({ order: s.orderNumber, products: s.products }))));
+    console.log("Detected format:", result.source);
+    console.log("Shipments found:", result.shipments.length);
 
     if (result.source === "UNKNOWN" || result.shipments.length === 0) {
+      // Mostrar los primeros 500 chars del texto para ayudar a diagnosticar
+      const preview = text.slice(0, 500).replace(/\n/g, "↵");
+      console.log("Unrecognized PDF text preview:", preview);
       return NextResponse.json(
         {
           error:
@@ -56,9 +79,10 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(result);
   } catch (err: any) {
-    console.error("PDF extract error:", err);
+    const msg = err?.message ?? String(err);
+    console.error("PDF extract unexpected error:", err);
     return NextResponse.json(
-      { error: "Error al procesar el PDF. Intentá de nuevo." },
+      { error: `Error inesperado: ${msg}` },
       { status: 500 }
     );
   }
