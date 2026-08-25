@@ -40,7 +40,9 @@ export function extractRemito(text: string): ExtractedShipment[] {
     const cpMatch = domText.match(/CP\s*(\d{3,5})/i);
     if (cpMatch) postalCode = cpMatch[1];
 
-    const telMatch = domText.match(/\.?\s*Tel:\s*([+\d\s\-]+)/i);
+    // Captura el teléfono completo, incluyendo +, dígitos, espacios,
+    // guiones, paréntesis y barras (ej: +54 9 11 4567-8901, (011) 4567-8901)
+    const telMatch = domText.match(/\.?\s*Tel:\s*([+\d\s\-()\[\]\/]+)/i);
     if (telMatch) recipientPhone = telMatch[1].trim();
 
     // Dirección: todo antes de "- CP" o ". Tel:"
