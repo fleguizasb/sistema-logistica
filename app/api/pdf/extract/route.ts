@@ -4,13 +4,68 @@ import { detectAndExtract } from "@/lib/extractors";
 
 export const runtime = "nodejs";
 
+/**
+ * Extrae texto de un buffer PDF con dos estrategias:
+ * 1. pdf-parse (rápido, para PDFs bien formados)
+ * 2. pdfjs-dist v3 en modo legacy/recovery (para PDFs con XRef malformada,
+ *    como los remitos de Contabilium que dan "bad XRef entry")
+ */
+async function extractTextFromPdf(buffer: Buffer): Promise<string> {
+  // ── Intento 1: pdf-parse ─────────────────────────────────────────────────────
+  try {
+    const pdfParse = require("pdf-parse/lib/pdf-parse");
+    const data = await pdfParse(buffer);
+    return data.text ?? "";
+  } catch (firstErr: any) {
+    console.warn("pdf-parse falló:", firstErr.message, "— usando pdfjs-dist con recovery");
+  }
+
+  // ── Intento 2: pdfjs-dist v3 legacy con stopAtErrors=false ──────────────────
+  // pdfjs-dist v3 tiene mejor recovery de XRef corrupta que la v2 incluida
+  // en pdf-parse. El build "legacy" funciona en Node.js sin Web Workers.
+  const pdfjsLib = require("pdfjs-dist/legacy/build/pdf.js");
+  pdfjsLib.GlobalWorkerOptions.workerSrc = ""; // deshabilitar workers en Node.js
+
+  const loadingTask = pdfjsLib.getDocument({
+    data: new Uint8Array(buffer),
+    stopAtErrors: false,    // continuar aunque haya errores en la estructura
+    isEvalSupported: false, // sin eval() en Node
+    useSystemFonts: true,
+    disableFontFace: true,
+  });
+
+  const doc = await loadingTask.promise;
+
+  // Reconstruir texto replicando el comportamiento de pdf-parse:
+  // items con el mismo Y → misma línea, cambio de Y → salto de línea
+  let fullText = "";
+  for (let pageNum = 1; pageNum <= doc.numPages; pageNum++) {
+    const page = await doc.getPage(pageNum);
+    const textContent = await page.getTextContent();
+
+    let lastY: number | null = null;
+    for (const item of textContent.items as Array<{ str?: string; transform?: number[] }>) {
+      if (!item.str || !item.transform) continue;
+      const y = item.transform[5];
+      if (lastY !== null && y !== lastY) {
+        fullText += "\n";
+      }
+      fullText += item.str;
+      lastY = y;
+    }
+    fullText += "\n";
+  }
+
+  return fullText;
+}
+
+// ── Handler principal ──────────────────────────────────────────────────────────
+
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session?.user) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
-
-  let text = "";
 
   try {
     const formData = await req.formData();
@@ -32,42 +87,25 @@ export async function POST(req: NextRequest) {
 
     const buffer = Buffer.from(await file.arrayBuffer());
 
-    // ── Paso 1: parsear PDF ────────────────────────────────────────────────────
+    // Extraer texto (con fallback automático si pdf-parse falla)
+    let text: string;
     try {
-      // Usar require para evitar el bug del archivo de test de pdf-parse en Next.js
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const pdfParse = require("pdf-parse/lib/pdf-parse");
-      const data = await pdfParse(buffer);
-      text = data.text ?? "";
+      text = await extractTextFromPdf(buffer);
     } catch (parseErr: any) {
-      const msg = parseErr?.message ?? String(parseErr);
-      console.error("pdf-parse error:", parseErr);
+      const msg = parseErr?.message ?? "error desconocido";
+      console.error("Error leyendo el PDF:", parseErr);
       return NextResponse.json(
-        { error: `Error leyendo el PDF: ${msg}` },
-        { status: 500 }
+        {
+          error: `No se pudo leer el PDF (${msg}). Intentá exportarlo o guardarlo de nuevo desde Contabilium.`,
+        },
+        { status: 422 }
       );
     }
 
-    // ── Paso 2: detectar formato y extraer ─────────────────────────────────────
-    let result;
-    try {
-      result = detectAndExtract(text);
-    } catch (extractErr: any) {
-      const msg = extractErr?.message ?? String(extractErr);
-      console.error("Extraction error:", extractErr);
-      return NextResponse.json(
-        { error: `Error extrayendo datos: ${msg}` },
-        { status: 500 }
-      );
-    }
-
-    console.log("Detected format:", result.source);
-    console.log("Shipments found:", result.shipments.length);
+    // Detectar formato y extraer datos de envío
+    const result = detectAndExtract(text);
 
     if (result.source === "UNKNOWN" || result.shipments.length === 0) {
-      // Mostrar los primeros 500 chars del texto para ayudar a diagnosticar
-      const preview = text.slice(0, 500).replace(/\n/g, "↵");
-      console.log("Unrecognized PDF text preview:", preview);
       return NextResponse.json(
         {
           error:
@@ -79,10 +117,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(result);
   } catch (err: any) {
-    const msg = err?.message ?? String(err);
     console.error("PDF extract unexpected error:", err);
     return NextResponse.json(
-      { error: `Error inesperado: ${msg}` },
+      { error: "Error inesperado al procesar el PDF. Intentá de nuevo." },
       { status: 500 }
     );
   }

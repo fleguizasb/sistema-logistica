@@ -42,7 +42,8 @@
     "react-hook-form": "^7.85.0",
     "tailwind-merge": "^3.6.0",
     "tailwindcss-animate": "^1.0.7",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "pdfjs-dist": "^3.11.174"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
