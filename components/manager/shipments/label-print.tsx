@@ -183,7 +183,7 @@ function buildSummaryHtml(shipments: ShipmentForLabel[], copies: Record<string, 
         <tr style="background:${i % 2 === 0 ? "#fff" : "#f0f0f0"}">
           <td style="padding:2mm 3mm;border:1px solid #555;font-weight:bold;font-size:9pt">${esc(s.recipientName)}</td>
           <td style="padding:2mm 3mm;border:1px solid #555;font-size:9pt">${esc(s.city)}</td>
-          <td style="padding:2mm 3mm;border:1px solid #555;font-family:monospace;font-size:8.5pt">${esc(skuStr || "—")}</td>
+          <td style="padding:2mm 3mm;border:1px solid #555;font-family:monospace;font-size:10pt;font-weight:bold">${esc(skuStr || "—")}</td>
           <td style="padding:2mm 3mm;border:1px solid #555;text-align:center;font-weight:bold;font-size:9pt">${c}</td>
         </tr>`;
     })
