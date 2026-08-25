@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Package, Plus, Search, ChevronRight, FileUp, Printer, X, CheckCircle2, Loader2, Trash2, Minus, Copy, Check } from "lucide-react";
+import { Package, Plus, Search, ChevronRight, FileUp, Printer, X, CheckCircle2, Loader2, Trash2, Minus, Copy, Check, Clock } from "lucide-react";
 import { StatusBadge } from "@/components/ui/badge";
 import { ShipmentStatus } from "@prisma/client";
 import { markAsReady } from "@/lib/actions/labels";
@@ -57,6 +57,64 @@ function extractSkus(products: string | null): string {
     }).join(", ");
   }
   return "";
+}
+
+// ─── Helper: plazo de entrega (7 días desde la compra) ───────────────────────
+
+const DEADLINE_DAYS = 7;
+
+interface DeadlineInfo {
+  daysLeft: number;
+  label: string;
+  className: string;
+}
+
+function getDeadlineInfo(createdAt: Date, status: ShipmentStatus): DeadlineInfo | null {
+  // Para envíos finalizados no tiene sentido mostrar el plazo
+  if (status === "ENTREGADO" || status === "CANCELADO") return null;
+
+  const msPerDay = 24 * 60 * 60 * 1000;
+  const elapsed = Math.floor((Date.now() - new Date(createdAt).getTime()) / msPerDay);
+  const daysLeft = DEADLINE_DAYS - elapsed;
+
+  if (daysLeft >= 5) {
+    return { daysLeft, label: `${daysLeft}d`, className: "text-green-700 bg-green-50 border-green-200" };
+  }
+  if (daysLeft === 4) {
+    return { daysLeft, label: "4 días", className: "text-green-700 bg-green-50 border-green-200" };
+  }
+  if (daysLeft === 3) {
+    return { daysLeft, label: "3 días", className: "text-yellow-700 bg-yellow-50 border-yellow-200" };
+  }
+  if (daysLeft === 2) {
+    return { daysLeft, label: "2 días", className: "text-orange-600 bg-orange-50 border-orange-200" };
+  }
+  if (daysLeft === 1) {
+    return { daysLeft, label: "1 día", className: "text-orange-700 bg-orange-50 border-orange-200 font-semibold" };
+  }
+  if (daysLeft === 0) {
+    return { daysLeft, label: "¡Hoy!", className: "text-red-700 bg-red-50 border-red-300 font-bold" };
+  }
+  // Vencido
+  return {
+    daysLeft,
+    label: `${Math.abs(daysLeft)}d venc.`,
+    className: "text-red-700 bg-red-100 border-red-300 font-bold",
+  };
+}
+
+function DeadlineBadge({ createdAt, status }: { createdAt: Date; status: ShipmentStatus }) {
+  const info = getDeadlineInfo(createdAt, status);
+  if (!info) return null;
+  return (
+    <span
+      className={`inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded border text-xs ${info.className}`}
+      title={`Plazo: ${DEADLINE_DAYS} días desde la compra`}
+    >
+      <Clock className="w-3 h-3 shrink-0" />
+      {info.label}
+    </span>
+  );
 }
 
 // ─── Componente principal ─────────────────────────────────────────────────────
@@ -251,7 +309,7 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
                       Chofer
                     </th>
                     <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                      Fecha
+                      Fecha · Plazo
                     </th>
                     <th className="w-8" />
                   </tr>
@@ -322,8 +380,12 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
                         <td className="px-4 py-3 text-gray-600">
                           {s.assignedDriver?.name ?? <span className="text-gray-300">—</span>}
                         </td>
-                        <td className="px-4 py-3 text-gray-400 text-xs">
-                          {new Date(s.createdAt).toLocaleDateString("es-AR")}
+                        {/* Fecha + plazo */}
+                        <td className="px-4 py-3">
+                          <p className="text-xs text-gray-400">
+                            {new Date(s.createdAt).toLocaleDateString("es-AR")}
+                          </p>
+                          <DeadlineBadge createdAt={s.createdAt} status={s.status} />
                         </td>
                         <td className="px-2 py-3" onClick={(e) => e.stopPropagation()}>
                           <button
@@ -383,7 +445,10 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
                       <div className="flex-1 min-w-0">
                         <p className="font-medium text-gray-900 truncate">{s.recipientName}</p>
                         <p className="text-xs text-gray-500 truncate">{s.addressLine}, {s.city}</p>
-                        <div className="mt-2"><StatusBadge status={s.status} /></div>
+                        <div className="mt-2 flex items-center gap-2 flex-wrap">
+                          <StatusBadge status={s.status} />
+                          <DeadlineBadge createdAt={s.createdAt} status={s.status} />
+                        </div>
                       </div>
                       <div className="flex items-center gap-1 shrink-0 ml-2">
                         <button
