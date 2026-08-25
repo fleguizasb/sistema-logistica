@@ -7,11 +7,18 @@ const nextConfig = {
     ignoreBuildErrors: true,
   },
   experimental: {
-    // pdfjs-dist v3 requiere canvas (módulo nativo opcional).
-    // Sin esto, el webpack de Next.js intenta bundlear pdfjs-dist y falla
-    // al no poder resolver 'canvas'. Con esto, Node.js lo carga en runtime
-    // directamente desde node_modules, sin pasar por webpack.
+    // pdfjs-dist v3 tiene una dependencia nativa opcional (canvas) que
+    // rompe el bundler de webpack. Con esto, Next.js lo carga desde
+    // node_modules en runtime, sin pasarlo por webpack.
     serverComponentsExternalPackages: ["pdfjs-dist"],
+
+    // Vercel solo incluye en el deploy los archivos que detecta como
+    // importados estáticamente. pdf.worker.js se carga de forma dinámica
+    // dentro de pdf.js (require('./pdf.worker.js')), así que Vercel no lo
+    // detecta y no lo incluye. Esto fuerza su inclusión.
+    outputFileTracingIncludes: {
+      "/**": ["./node_modules/pdfjs-dist/legacy/build/**"],
+    },
   },
 };
 
