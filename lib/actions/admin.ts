@@ -67,7 +67,6 @@ export async function toggleUserActive(userId: string, active: boolean) {
     return { success: false, error: "No autorizado" };
   }
 
-  // No permitir desactivarse a uno mismo
   if (userId === session.user.id) {
     return { success: false, error: "No podés desactivar tu propia cuenta" };
   }
@@ -78,5 +77,33 @@ export async function toggleUserActive(userId: string, active: boolean) {
   });
 
   revalidatePath("/admin");
+  return { success: true };
+}
+
+// ─── Resetear contraseña de otro usuario (solo owner) ────────────────────────
+
+export async function resetUserPassword(userId: string, newPassword: string) {
+  const session = await auth();
+
+  if (!session?.user?.isOwner) {
+    return { success: false, error: "No autorizado" };
+  }
+
+  if (newPassword.length < 6) {
+    return { success: false, error: "La contraseña debe tener al menos 6 caracteres" };
+  }
+
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) {
+    return { success: false, error: "Usuario no encontrado" };
+  }
+
+  const passwordHash = await bcrypt.hash(newPassword, 10);
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: { passwordHash },
+  });
+
   return { success: true };
 }

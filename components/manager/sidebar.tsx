@@ -11,6 +11,7 @@ import {
   AlertTriangle,
   Truck,
   ShieldCheck,
+  UserCircle,
 } from "lucide-react";
 
 const baseNavigation = [
@@ -48,7 +49,7 @@ export function Sidebar({ isOwner = false }: { isOwner?: boolean }) {
         </Link>
       </div>
 
-      {/* Navegación */}
+      {/* Navegación principal */}
       <nav className="flex-1 px-2 space-y-0.5">
         {navigation.map((item) => {
           const isActive =
@@ -76,15 +77,37 @@ export function Sidebar({ isOwner = false }: { isOwner?: boolean }) {
         })}
       </nav>
 
-      {/* Indicador owner */}
-      {isOwner && (
-        <div className="px-4 py-3 border-t border-gray-100">
-          <div className="flex items-center gap-2">
-            <ShieldCheck className="w-3.5 h-3.5 text-blue-500" />
-            <span className="text-xs text-gray-400">Administrador</span>
+      {/* Pie del sidebar */}
+      <div className="px-2 pt-2 border-t border-gray-100 space-y-0.5">
+        {/* Mi perfil — siempre visible */}
+        <Link
+          href="/perfil"
+          className={cn(
+            "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+            pathname === "/perfil"
+              ? "bg-blue-50 text-blue-700"
+              : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+          )}
+        >
+          <UserCircle
+            className={cn(
+              "w-4 h-4 shrink-0",
+              pathname === "/perfil" ? "text-blue-600" : "text-gray-400"
+            )}
+          />
+          Mi perfil
+        </Link>
+
+        {/* Indicador owner */}
+        {isOwner && (
+          <div className="px-3 py-2">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="w-3.5 h-3.5 text-blue-500" />
+              <span className="text-xs text-gray-400">Administrador</span>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </aside>
   );
 }

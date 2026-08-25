@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { ShieldCheck, Plus, CheckCircle2, XCircle, Truck, Users } from "lucide-react";
 import Link from "next/link";
 import { ToggleUserActive } from "@/components/manager/admin/toggle-user-active";
+import { ResetPasswordButton } from "@/components/manager/admin/reset-password-button";
 
 export const metadata = { title: "Usuarios — Logística SleepBox" };
 
@@ -178,10 +179,16 @@ function UserRow({
         </p>
       </div>
 
-      {/* Toggle — no aparece para uno mismo */}
-      {!isMe && (
-        <ToggleUserActive userId={user.id} active={user.active} />
-      )}
+      {/* Acciones */}
+      <div className="flex items-center gap-1 shrink-0">
+        {/* Cambiar contraseña — disponible para todos los usuarios */}
+        <ResetPasswordButton userId={user.id} userName={user.name} />
+
+        {/* Toggle activo — no aparece para uno mismo */}
+        {!isMe && (
+          <ToggleUserActive userId={user.id} active={user.active} />
+        )}
+      </div>
     </div>
   );
 }
