@@ -23,6 +23,7 @@ interface Shipment {
   products: string | null;
   source: string;
   createdAt: Date;
+  saleDate: Date | null;
   assignedDriver: { id: string; name: string } | null;
   _count: { events: number };
 }
@@ -69,12 +70,14 @@ interface DeadlineInfo {
   className: string;
 }
 
-function getDeadlineInfo(createdAt: Date, status: ShipmentStatus): DeadlineInfo | null {
+function getDeadlineInfo(createdAt: Date, saleDate: Date | null, status: ShipmentStatus): DeadlineInfo | null {
   // Para envíos finalizados no tiene sentido mostrar el plazo
   if (status === "ENTREGADO" || status === "CANCELADO") return null;
 
+  // Usar la fecha de venta si está disponible; si no, la fecha de carga
+  const reference = saleDate ?? createdAt;
   const msPerDay = 24 * 60 * 60 * 1000;
-  const elapsed = Math.floor((Date.now() - new Date(createdAt).getTime()) / msPerDay);
+  const elapsed = Math.floor((Date.now() - new Date(reference).getTime()) / msPerDay);
   const daysLeft = DEADLINE_DAYS - elapsed;
 
   if (daysLeft >= 5) {
@@ -103,13 +106,13 @@ function getDeadlineInfo(createdAt: Date, status: ShipmentStatus): DeadlineInfo 
   };
 }
 
-function DeadlineBadge({ createdAt, status }: { createdAt: Date; status: ShipmentStatus }) {
-  const info = getDeadlineInfo(createdAt, status);
+function DeadlineBadge({ createdAt, saleDate, status }: { createdAt: Date; saleDate: Date | null; status: ShipmentStatus }) {
+  const info = getDeadlineInfo(createdAt, saleDate, status);
   if (!info) return null;
   return (
     <span
       className={`inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded border text-xs ${info.className}`}
-      title={`Plazo: ${DEADLINE_DAYS} días desde la compra`}
+      title={`Plazo: ${DEADLINE_DAYS} días desde la ${saleDate ? "venta" : "carga"}`}
     >
       <Clock className="w-3 h-3 shrink-0" />
       {info.label}
@@ -385,7 +388,7 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
                           <p className="text-xs text-gray-400">
                             {new Date(s.createdAt).toLocaleDateString("es-AR")}
                           </p>
-                          <DeadlineBadge createdAt={s.createdAt} status={s.status} />
+                          <DeadlineBadge createdAt={s.createdAt} saleDate={s.saleDate} status={s.status} />
                         </td>
                         <td className="px-2 py-3" onClick={(e) => e.stopPropagation()}>
                           <button
@@ -447,7 +450,7 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
                         <p className="text-xs text-gray-500 truncate">{s.addressLine}, {s.city}</p>
                         <div className="mt-2 flex items-center gap-2 flex-wrap">
                           <StatusBadge status={s.status} />
-                          <DeadlineBadge createdAt={s.createdAt} status={s.status} />
+                          <DeadlineBadge createdAt={s.createdAt} saleDate={s.saleDate} status={s.status} />
                         </div>
                       </div>
                       <div className="flex items-center gap-1 shrink-0 ml-2">

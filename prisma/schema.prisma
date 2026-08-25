@@ -52,7 +52,6 @@ model User {
   role         Role
   phone        String?
   active       Boolean @default(true)
-  isOwner      Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -91,6 +90,10 @@ model Shipment {
   // Contenido y notas
   products String?
   notes    String?
+
+  // Fecha real de la venta/compra (para calcular plazo de entrega)
+  // Puede diferir de createdAt si el remito se carga con demora
+  saleDate DateTime?
 
   // Datos brutos del PDF para auditoría y re-extracción futura
   rawPdfData Json?

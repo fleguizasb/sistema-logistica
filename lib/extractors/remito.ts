@@ -21,6 +21,14 @@
 
 import type { ExtractedShipment } from "./types";
 
+/** Convierte "DD/MM/YYYY" en un objeto Date. Retorna undefined si es inválido. */
+function parseArgDate(str: string): Date | undefined {
+  const m = str.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (!m) return undefined;
+  const d = new Date(parseInt(m[3]), parseInt(m[2]) - 1, parseInt(m[1]));
+  return isNaN(d.getTime()) ? undefined : d;
+}
+
 export function extractRemito(text: string): ExtractedShipment[] {
   // ── Nombre del destinatario ───────────────────────────────────────────────────
   const razonMatch = text.match(/Razón social:\s*([^\n]+?)(?=\n|DNI:|Domicilio:|$)/i);
@@ -66,6 +74,11 @@ export function extractRemito(text: string): ExtractedShipment[] {
   // ── Número de documento ───────────────────────────────────────────────────────
   const nroMatch = text.match(/Nº:\s*([\d-]+)/);
   const orderNumber = nroMatch ? nroMatch[1] : undefined;
+
+  // ── Fecha de venta ────────────────────────────────────────────────────────────
+  // Formatos posibles: "Fecha: 25/08/2026", "Fecha  25/08/2026"
+  const fechaMatch = text.match(/\bFecha[:\s]+(\d{1,2}\/\d{1,2}\/\d{4})/i);
+  const saleDate = fechaMatch ? parseArgDate(fechaMatch[1]) : undefined;
 
   // ── Productos ─────────────────────────────────────────────────────────────────
   // Localizar el inicio de la sección de productos (después de "Condición de IVA:")
@@ -136,6 +149,7 @@ export function extractRemito(text: string): ExtractedShipment[] {
       province,
       postalCode,
       products,
+      saleDate,
       source: "REMITO",
     },
   ];

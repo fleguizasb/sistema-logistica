@@ -108,6 +108,7 @@ export function PdfUploadFlow() {
             products: s.products,
             notes: s.notes,
             orderNumber: s.orderNumber,
+            saleDate: s.saleDate,
           });
           count++;
         } catch (err: any) {

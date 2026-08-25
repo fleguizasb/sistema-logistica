@@ -57,6 +57,8 @@ export async function createShipment(data: {
   products?: string;
   notes?: string;
   orderNumber?: string;
+  /** Fecha real de la venta; se usa para calcular el plazo de entrega */
+  saleDate?: Date;
 }) {
   const session = await auth();
   if (!session?.user) throw new Error("No autorizado");
@@ -184,7 +186,6 @@ export async function deleteShipments(ids: string[]) {
   // Eliminar registros hijos primero para evitar violaciones de FK
   await prisma.shipmentEvent.deleteMany({ where: { shipmentId: { in: ids } } });
   await prisma.labelBatchItem.deleteMany({ where: { shipmentId: { in: ids } } });
-  await prisma.routeItem.deleteMany({ where: { shipmentId: { in: ids } } });
 
   await prisma.shipment.deleteMany({ where: { id: { in: ids } } });
 

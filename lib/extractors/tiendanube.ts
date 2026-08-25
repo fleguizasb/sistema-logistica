@@ -24,6 +24,37 @@
 
 import type { ExtractedShipment } from "./types";
 
+const MESES: Record<string, number> = {
+  enero: 0, febrero: 1, marzo: 2, abril: 3, mayo: 4, junio: 5,
+  julio: 6, agosto: 7, septiembre: 8, octubre: 9, noviembre: 10, diciembre: 11,
+};
+
+/** Parsea la fecha de "Realizada el lunes, 25 de agosto de 2026" o "25/08/2026". */
+function parseSaleDate(block: string): Date | undefined {
+  const match = block.match(/Realizada el([^\n]+)/i);
+  if (!match) return undefined;
+  const raw = match[1];
+
+  // Formato numérico: DD/MM/YYYY
+  const numMatch = raw.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (numMatch) {
+    const d = new Date(parseInt(numMatch[3]), parseInt(numMatch[2]) - 1, parseInt(numMatch[1]));
+    if (!isNaN(d.getTime())) return d;
+  }
+
+  // Formato textual: "25 de agosto de 2026"
+  const textMatch = raw.match(/(\d{1,2})\s+de\s+([a-záéíóú]+)\s+de\s+(\d{4})/i);
+  if (textMatch) {
+    const mes = MESES[textMatch[2].toLowerCase()];
+    if (mes !== undefined) {
+      const d = new Date(parseInt(textMatch[3]), mes, parseInt(textMatch[1]));
+      if (!isNaN(d.getTime())) return d;
+    }
+  }
+
+  return undefined;
+}
+
 export function extractTiendaNube(text: string): ExtractedShipment[] {
   // Normalizar saltos de página
   const normalized = text.replace(/\x0c/g, "\n");
@@ -145,6 +176,9 @@ function parseOrderBlock(block: string): ExtractedShipment | null {
   if (!orderMatch) return null;
   const orderNumber = orderMatch[1];
 
+  // ── Fecha de la orden ─────────────────────────────────────────────────────────
+  const saleDate = parseSaleDate(block);
+
   // ── Productos ─────────────────────────────────────────────────────────────────
   const products = extractProducts(block);
 
@@ -238,6 +272,7 @@ function parseOrderBlock(block: string): ExtractedShipment | null {
     postalCode,
     products,
     notes,
+    saleDate,
     source: "TIENDANUBE",
   };
 }
