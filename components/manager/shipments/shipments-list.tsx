@@ -48,14 +48,8 @@ const TABS: { value: string; label: string }[] = [
 
 function extractSkus(products: string | null): string {
   if (!products) return "";
-  const matches = [...products.matchAll(/\(SKU:\s*([^,)]+)(?:,\s*qty:\s*(\d+))?\)/gi)];
-  if (matches.length > 0) {
-    return matches.map((m) => {
-      const sku = m[1].trim();
-      const qty = m[2] ? parseInt(m[2], 10) : 1;
-      return qty > 1 ? `${sku} ×${qty}` : sku;
-    }).join(", ");
-  }
+  const matches = [...products.matchAll(/\(SKU:\s*([^)]+)\)/gi)];
+  if (matches.length > 0) return matches.map((m) => m[1].trim()).join(", ");
   return "";
 }
 
@@ -71,7 +65,7 @@ export function ShipmentsList({ shipments, currentStatus }: ShipmentsListProps) 
 
   function handleCopy(e: React.MouseEvent, token: string, id: string) {
     e.stopPropagation();
-    const url = `${window.location.origin}/seguimiento/${token}`;
+    const url = `${window.location.origin}/tracking/${token}`;
     navigator.clipboard.writeText(url).then(() => {
       setCopiedId(id);
       setTimeout(() => setCopiedId(null), 1500);
