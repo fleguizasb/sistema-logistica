@@ -80,7 +80,7 @@ function extractSkusOnly(products: string | null): string {
   return products.trim() || "—";
 }
 
-function buildLabelHtml(s: ShipmentForLabel): string {
+function buildLabelHtml(s: ShipmentForLabel, copyIndex: number = 1, totalCopies: number = 1): string {
   const order = s.orderNumber
     ? `<span style="font-size:7pt;color:#555">#${esc(s.orderNumber)}</span>`
     : "";
@@ -122,9 +122,12 @@ function buildLabelHtml(s: ShipmentForLabel): string {
   <p style="font-size:8.5pt;margin:0 0 2.5mm">${esc(s.city)}, ${esc(s.province)}${s.postalCode ? ` CP ${esc(s.postalCode)}` : ""}</p>
   ${phone}
   ${skuBlock}
-  <div style="margin-top:auto;border-top:1px dashed #bbb;padding-top:2mm">
-    <p style="font-size:6.5pt;color:#555;text-transform:uppercase;letter-spacing:.5px;margin:0 0 .5mm">SEGUIMIENTO</p>
-    <p style="font-size:7pt;word-break:break-all;color:#333;margin:0;line-height:1.3">/tracking/${esc(s.trackingToken)}</p>
+  <div style="margin-top:auto;border-top:1px dashed #bbb;padding-top:2mm;display:flex;justify-content:space-between;align-items:flex-end">
+    <div>
+      <p style="font-size:6.5pt;color:#555;text-transform:uppercase;letter-spacing:.5px;margin:0 0 .5mm">SEGUIMIENTO</p>
+      <p style="font-size:7pt;word-break:break-all;color:#333;margin:0;line-height:1.3">/tracking/${esc(s.trackingToken)}</p>
+    </div>
+    ${totalCopies > 1 ? `<span style="font-size:8pt;font-weight:bold;color:#555;margin-left:3mm;white-space:nowrap">${copyIndex}/${totalCopies}</span>` : ""}
   </div>
 </div>`;
 }
@@ -254,7 +257,10 @@ function buildSummaryHtml(shipments: ShipmentForLabel[], copies: Record<string, 
 
 function buildPrintHtml(shipments: ShipmentForLabel[], copies: Record<string, number>): string {
   const labelsHtml = shipments
-    .flatMap((s) => Array.from({ length: copies[s.id] ?? 1 }, () => buildLabelHtml(s)))
+    .flatMap((s) => {
+      const total = copies[s.id] ?? 1;
+      return Array.from({ length: total }, (_, i) => buildLabelHtml(s, i + 1, total));
+    })
     .join("\n");
 
   const summaryHtml = buildSummaryHtml(shipments, copies);

@@ -60,12 +60,10 @@ function extractSkus(products: string | null): string {
   return "";
 }
 
-// ─── Helper: plazo de entrega (7 días desde la compra) ───────────────────────
-
-const DEADLINE_DAYS = 7;
+// ─── Helper: días transcurridos desde la compra ───────────────────────────────
 
 interface DeadlineInfo {
-  daysLeft: number;
+  elapsed: number;
   label: string;
   className: string;
 }
@@ -78,30 +76,26 @@ function getDeadlineInfo(createdAt: Date, saleDate: Date | null, status: Shipmen
   const reference = saleDate ?? createdAt;
   const msPerDay = 24 * 60 * 60 * 1000;
   const elapsed = Math.floor((Date.now() - new Date(reference).getTime()) / msPerDay);
-  const daysLeft = DEADLINE_DAYS - elapsed;
 
-  if (daysLeft >= 5) {
-    return { daysLeft, label: `${daysLeft}d`, className: "text-green-700 bg-green-50 border-green-200" };
+  // Sin badge si fue cargado hoy
+  if (elapsed <= 0) return null;
+
+  // 1–3 días transcurridos → verde
+  if (elapsed <= 3) {
+    return { elapsed, label: `${elapsed}d`, className: "text-green-700 bg-green-50 border-green-200" };
   }
-  if (daysLeft === 4) {
-    return { daysLeft, label: "4 días", className: "text-green-700 bg-green-50 border-green-200" };
+  // 4–5 días → amarillo
+  if (elapsed <= 5) {
+    return { elapsed, label: `${elapsed}d`, className: "text-yellow-700 bg-yellow-50 border-yellow-200" };
   }
-  if (daysLeft === 3) {
-    return { daysLeft, label: "3 días", className: "text-yellow-700 bg-yellow-50 border-yellow-200" };
+  // 6–7 días → rojo
+  if (elapsed <= 7) {
+    return { elapsed, label: `${elapsed}d`, className: "text-red-700 bg-red-50 border-red-300 font-semibold" };
   }
-  if (daysLeft === 2) {
-    return { daysLeft, label: "2 días", className: "text-orange-600 bg-orange-50 border-orange-200" };
-  }
-  if (daysLeft === 1) {
-    return { daysLeft, label: "1 día", className: "text-orange-700 bg-orange-50 border-orange-200 font-semibold" };
-  }
-  if (daysLeft === 0) {
-    return { daysLeft, label: "¡Hoy!", className: "text-red-700 bg-red-50 border-red-300 font-bold" };
-  }
-  // Vencido
+  // Más de 7 días → rojo fuerte
   return {
-    daysLeft,
-    label: `${Math.abs(daysLeft)}d venc.`,
+    elapsed,
+    label: `${elapsed}d`,
     className: "text-red-700 bg-red-100 border-red-300 font-bold",
   };
 }
@@ -112,7 +106,7 @@ function DeadlineBadge({ createdAt, saleDate, status }: { createdAt: Date; saleD
   return (
     <span
       className={`inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded border text-xs ${info.className}`}
-      title={`Plazo: ${DEADLINE_DAYS} días desde la ${saleDate ? "venta" : "carga"}`}
+      title={`${info.elapsed} días desde la ${saleDate ? "venta" : "carga"}`}
     >
       <Clock className="w-3 h-3 shrink-0" />
       {info.label}
