@@ -20,10 +20,19 @@ import type { RouteOptimizer } from "./types";
 export const activeOptimizer: RouteOptimizer = new NearestNeighborOptimizer();
 
 /**
- * Construye el deep link de Google Maps para un segmento de paradas.
- * Máximo MAPS_WAYPOINTS_PER_SEGMENT paradas por segmento.
+ * Construye el deep link de Google Maps para las paradas (ya ordenadas).
  *
- * @param stops Las paradas del segmento (ya ordenadas)
+ * IMPORTANTE: Se construye la URL manualmente —  NO usar URLSearchParams.
+ * URLSearchParams codifica el pipe | como %7C, que Google Maps no reconoce
+ * como separador de waypoints, haciendo que muestre pines sueltos sin ruta.
+ *
+ * Formato resultante:
+ *   https://www.google.com/maps/dir/?api=1&travelmode=driving
+ *     &destination=lat,lng
+ *     &origin=lat,lng        (solo si se pasa originCoords)
+ *     &waypoints=lat,lng|lat,lng|...
+ *
+ * @param stops Las paradas del segmento (ya ordenadas por el optimizador)
  * @param originCoords Coordenadas de origen del chofer (opcional)
  */
 export function buildGoogleMapsUrl(
@@ -32,15 +41,20 @@ export function buildGoogleMapsUrl(
 ): string {
   if (stops.length === 0) return "";
 
-  // Helper: devuelve coordenadas o dirección codificada una sola vez
-  function stopParam(s: { addressLine: string; city: string; coordinates: { lat: number; lng: number } | null }): string {
+  /**
+   * Devuelve el parámetro de una parada:
+   * - Con coordenadas: "lat,lng"     (sin encoding — comas son válidas en query strings)
+   * - Sin coordenadas: dirección codificada con encodeURIComponent
+   *   (se agrega Argentina para mejorar el geocoding)
+   */
+  function stopParam(
+    s: { addressLine: string; city: string; coordinates: { lat: number; lng: number } | null }
+  ): string {
     if (s.coordinates) return `${s.coordinates.lat},${s.coordinates.lng}`;
-    return encodeURIComponent(`${s.addressLine}, ${s.city}`);
+    return encodeURIComponent(`${s.addressLine}, ${s.city}, Argentina`);
   }
 
-  // Construimos la URL manualmente para evitar doble encoding.
-  // URLSearchParams codifica los valores automáticamente al hacer .toString(),
-  // lo que causaría doble encoding si ya usamos encodeURIComponent antes.
+  // Construimos la URL con string concatenation para evitar doble encoding.
   const parts: string[] = [
     "api=1",
     "travelmode=driving",
@@ -51,7 +65,8 @@ export function buildGoogleMapsUrl(
     parts.push(`origin=${originCoords.lat},${originCoords.lng}`);
   }
 
-  // Waypoints: separados por | (pipe), que NO debe ser re-codificado
+  // Waypoints: stops intermedias separadas por | (pipe sin codificar).
+  // Google Maps acepta hasta 8 waypoints + origin + destination = 10 paradas totales.
   if (stops.length > 1) {
     const waypoints = stops
       .slice(0, -1)

@@ -65,6 +65,7 @@ async function emitTrackingUpdate(shipmentId: string) {
  * - Marca todos como EN_CAMINO
  * - Asigna el chofer actual como assignedDriver
  * - Optimiza la ruta con nearest-neighbor
+ * - Guarda los routeItems en el orden optimizado
  * - Devuelve el deep link de Google Maps
  */
 export async function startRoute(shipmentIds: string[]): Promise<ActionResult> {
@@ -97,19 +98,25 @@ export async function startRoute(shipmentIds: string[]): Promise<ActionResult> {
     return { success: false, error: "Ningún envío está en estado Listo para enviar" };
   }
 
-  // Optimizar ruta
+  // Construir stops para el optimizador, conservando el id en cada stop
   const stops = shipments.map((s) => ({
-    id: s.id,
+    id: s.id,          // se conserva para reconstruir el orden después
     addressLine: s.addressLine,
     city: s.city,
-    province: s.province,
+    province: s.province ?? "",
     coordinates: s.lat != null && s.lng != null ? { lat: s.lat, lng: s.lng } : null,
   }));
 
-  const optimizedRoute = await activeOptimizer.optimize(stops);
-  const orderedStops = optimizedRoute.stops;
+  // Optimizar ruta — orderedStops mantiene la referencia al mismo objeto (incluye .id)
+  const optimizedRoute = await activeOptimizer.optimize(stops as Parameters<typeof activeOptimizer.optimize>[0]);
+  const orderedStops = optimizedRoute.stops as typeof stops;
 
-  // Construir URL de Google Maps
+  // Mapa id → posición optimizada (0-indexed)
+  const optimizedPositionById = new Map<string, number>(
+    orderedStops.map((s, i) => [s.id, i])
+  );
+
+  // Construir URL de Google Maps con paradas en orden optimizado
   const mapsUrl = buildGoogleMapsUrl(
     orderedStops.map((s) => ({
       addressLine: s.addressLine,
@@ -140,19 +147,20 @@ export async function startRoute(shipmentIds: string[]): Promise<ActionResult> {
       });
     }
 
-    // Crear registro de ruta
-    // Usamos `shipments` (no orderedStops) para garantizar que shipmentId nunca sea undefined,
-    // ya que Stop no incluye `id` en su tipo y podría perderse en ciertos contextos.
+    // Crear registro de ruta con paradas en orden OPTIMIZADO
     await tx.route.create({
       data: {
         driverId,
         startedAt: new Date(),
         items: {
-          create: shipments.map((s, index) => ({
-            shipmentId: s.id,
-            deliveryOrder: index + 1,
-            segment: Math.floor(index / 8) + 1,
-          })),
+          create: shipments.map((s) => {
+            const pos = optimizedPositionById.get(s.id) ?? 0;
+            return {
+              shipmentId: s.id,
+              deliveryOrder: pos + 1,
+              segment: Math.floor(pos / 8) + 1,
+            };
+          }),
         },
       },
     });
