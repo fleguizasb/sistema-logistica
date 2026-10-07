@@ -5,6 +5,48 @@ import { auth } from "@/auth";
 import { revalidatePath } from "next/cache";
 import { ShipmentSource } from "@prisma/client";
 
+// Busca la empresa logística que corresponde según reglas de ruteo.
+// Prioridad: código postal > ciudad > provincia.
+// Dentro de cada tipo, gana la regla con mayor `priority`.
+async function resolveLogisticsCompany(params: {
+  postalCode?: string;
+  city?: string;
+  province?: string;
+}): Promise<string | null> {
+  const rules = await prisma.routingRule.findMany({
+    where: { active: true },
+    orderBy: { priority: "desc" },
+    include: { logisticsCompany: { select: { id: true, active: true } } },
+  });
+
+  for (const rule of rules) {
+    if (!rule.logisticsCompany.active) continue;
+
+    if (rule.type === "POSTAL_CODE" && params.postalCode) {
+      if (params.postalCode.startsWith(rule.pattern)) {
+        return rule.logisticsCompanyId;
+      }
+    }
+    if (rule.type === "CITY" && params.city) {
+      if (params.city.toLowerCase().includes(rule.pattern.toLowerCase())) {
+        return rule.logisticsCompanyId;
+      }
+    }
+    if (rule.type === "PROVINCE" && params.province) {
+      if (params.province.toLowerCase().includes(rule.pattern.toLowerCase())) {
+        return rule.logisticsCompanyId;
+      }
+    }
+  }
+
+  // Sin regla que coincida → buscar empresa interna como fallback
+  const internal = await prisma.logisticsCompany.findFirst({
+    where: { isInternal: true, active: true },
+    select: { id: true },
+  });
+  return internal?.id ?? null;
+}
+
 export async function createShipmentAsRequester(data: {
   orderNumber?: string;
   recipientName: string;
@@ -32,6 +74,13 @@ export async function createShipmentAsRequester(data: {
   if (!data.city?.trim()) throw new Error("La ciudad es obligatoria");
   if (!data.province?.trim()) throw new Error("La provincia es obligatoria");
 
+  // Resolver empresa logística automáticamente por reglas de ruteo
+  const logisticsCompanyId = await resolveLogisticsCompany({
+    postalCode: data.postalCode?.trim(),
+    city: data.city.trim(),
+    province: data.province.trim(),
+  });
+
   const shipment = await prisma.shipment.create({
     data: {
       orderNumber: data.orderNumber?.trim() || null,
@@ -46,8 +95,8 @@ export async function createShipmentAsRequester(data: {
       products: data.products?.trim() || null,
       notes: data.notes?.trim() || null,
       createdById: session.user.id,
-      // Si es solicitante, marcar como quien lo pidió
       requestedById: role === "SOLICITANTE" ? session.user.id : null,
+      logisticsCompanyId,
     },
   });
 
