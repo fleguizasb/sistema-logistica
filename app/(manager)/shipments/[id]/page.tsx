@@ -1,7 +1,7 @@
 import { Header } from "@/components/manager/header";
 import { getShipmentById } from "@/lib/actions/shipments";
 import { ShipmentDetail } from "@/components/manager/shipments/shipment-detail";
-import { LogisticsSection } from "@/components/manager/logistics-section";
+import { LogisticsSection } from "@/components/manager/shipments/logistics-section";
 import { notFound } from "next/navigation";
 
 export const metadata = { title: "Detalle de envío — Sistema Logístico" };
