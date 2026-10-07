@@ -1,78 +1,42 @@
-import { auth } from "@/auth";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
-export default auth((req) => {
-  const { nextUrl } = req;
-  const session = req.auth;
-  const isLoggedIn = !!session;
+// Rutas públicas que no requieren autenticación
+const PUBLIC_PREFIXES = ["/tracking", "/api/tracking", "/api/auth"];
 
-  const path = nextUrl.pathname;
+// Nombres posibles del cookie de sesión de NextAuth / Auth.js
+const SESSION_COOKIE_NAMES = [
+  "__Secure-authjs.session-token",
+  "authjs.session-token",
+  "__Secure-next-auth.session-token",
+  "next-auth.session-token",
+];
 
-  // Rutas públicas: no requieren auth
-  if (path.startsWith("/tracking") || path.startsWith("/api/tracking")) {
+export function middleware(req: NextRequest) {
+  const { pathname } = req.nextUrl;
+
+  // Rutas públicas → pasar siempre
+  if (PUBLIC_PREFIXES.some((p) => pathname.startsWith(p))) {
     return NextResponse.next();
   }
 
-  // API routes de NextAuth
-  if (path.startsWith("/api/auth")) {
-    return NextResponse.next();
-  }
+  const isLoggedIn = SESSION_COOKIE_NAMES.some((name) =>
+    req.cookies.has(name)
+  );
+  const isLoginPage = pathname === "/login" || pathname.startsWith("/login/");
 
-  const isLoginPage = path === "/login" || path.startsWith("/login");
-
-  // No autenticado → login
+  // No autenticado → redirigir a login (salvo que ya esté ahí)
   if (!isLoggedIn) {
     if (isLoginPage) return NextResponse.next();
     return NextResponse.redirect(new URL("/login", req.url));
   }
 
-  const role = session?.user?.role;
-
-  // Ya autenticado → redirigir lejos del login o de la raíz "/"
-  if (isLoginPage || path === "/") {
-    if (role === "MANAGER") return NextResponse.redirect(new URL("/dashboard", req.url));
-    if (role === "DRIVER") return NextResponse.redirect(new URL("/assignments", req.url));
-    if (role === "SOLICITANTE") return NextResponse.redirect(new URL("/orders", req.url));
-    return NextResponse.redirect(new URL("/login", req.url));
-  }
-
-  // ─── Rutas del gestor ─────────────────────────────────────────────────────
-  const isManagerRoute =
-    path.startsWith("/dashboard") ||
-    path.startsWith("/shipments") ||
-    path.startsWith("/drivers") ||
-    path.startsWith("/incidents") ||
-    path.startsWith("/logistics") ||
-    path.startsWith("/admin") ||
-    path.startsWith("/perfil");
-
-  if (isManagerRoute && role !== "MANAGER") {
-    if (role === "DRIVER") return NextResponse.redirect(new URL("/assignments", req.url));
-    if (role === "SOLICITANTE") return NextResponse.redirect(new URL("/orders", req.url));
-    return NextResponse.redirect(new URL("/login", req.url));
-  }
-
-  // ─── Rutas del chofer ─────────────────────────────────────────────────────
-  const isDriverRoute =
-    path.startsWith("/assignments") ||
-    path.startsWith("/route");
-
-  if (isDriverRoute && role !== "DRIVER") {
-    if (role === "MANAGER") return NextResponse.redirect(new URL("/dashboard", req.url));
-    if (role === "SOLICITANTE") return NextResponse.redirect(new URL("/orders", req.url));
-    return NextResponse.redirect(new URL("/login", req.url));
-  }
-
-  // ─── Rutas del solicitante ────────────────────────────────────────────────
-  const isRequesterRoute = path.startsWith("/orders");
-
-  if (isRequesterRoute && role !== "SOLICITANTE" && role !== "MANAGER") {
-    // El gestor también puede ver /orders (vista de todos los pedidos)
-    return NextResponse.redirect(new URL("/login", req.url));
+  // Autenticado en login → ir a home (app/page.tsx hace el redirect por rol)
+  if (isLoginPage) {
+    return NextResponse.redirect(new URL("/", req.url));
   }
 
   return NextResponse.next();
-});
+}
 
 export const config = {
   matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.png$).*)"],
