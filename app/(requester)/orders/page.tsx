@@ -2,9 +2,22 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import Link from "next/link";
 import { PlusCircle, ExternalLink } from "lucide-react";
-import { formatDistanceToNow } from "date-fns";
-import { es } from "date-fns/locale";
 import { STATUS_LABELS, STATUS_COLORS } from "@/lib/constants/shipment-status";
+
+function timeAgo(date: Date): string {
+  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (seconds < 60) return "hace un momento";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `hace ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `hace ${hours} h`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `hace ${days} día${days !== 1 ? "s" : ""}`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `hace ${months} mes${months !== 1 ? "es" : ""}`;
+  const years = Math.floor(months / 12);
+  return `hace ${years} año${years !== 1 ? "s" : ""}`;
+}
 
 export const dynamic = "force-dynamic";
 
@@ -152,10 +165,7 @@ export default async function OrdersPage() {
 
                       {/* Hace cuánto */}
                       <td className="px-4 py-3 hidden lg:table-cell text-gray-400 text-xs">
-                        {formatDistanceToNow(new Date(s.createdAt), {
-                          addSuffix: true,
-                          locale: es,
-                        })}
+                        {timeAgo(new Date(s.createdAt))}
                       </td>
 
                       {/* Acciones */}
