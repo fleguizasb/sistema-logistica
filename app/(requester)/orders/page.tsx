@@ -1,0 +1,201 @@
+import { auth } from "@/auth";
+import { prisma } from "@/lib/prisma";
+import Link from "next/link";
+import { PlusCircle, ExternalLink } from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
+import { es } from "date-fns/locale";
+import { STATUS_LABELS, STATUS_COLORS } from "@/lib/constants/shipment-status";
+
+export const dynamic = "force-dynamic";
+
+async function getAllShipments() {
+  return prisma.shipment.findMany({
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      orderNumber: true,
+      trackingToken: true,
+      recipientName: true,
+      city: true,
+      province: true,
+      status: true,
+      createdAt: true,
+      products: true,
+      externalTrackingUrl: true,
+      externalTrackingCode: true,
+      logisticsCompany: {
+        select: { name: true, isInternal: true },
+      },
+      requestedBy: {
+        select: { name: true },
+      },
+      createdBy: {
+        select: { name: true },
+      },
+    },
+  });
+}
+
+export default async function OrdersPage() {
+  const session = await auth();
+  const shipments = await getAllShipments();
+  const currentUserId = session?.user?.id;
+
+  return (
+    <div className="max-w-5xl mx-auto">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Pedidos</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            {shipments.length} pedido{shipments.length !== 1 ? "s" : ""} en el sistema
+          </p>
+        </div>
+        <Link
+          href="/orders/new"
+          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+        >
+          <PlusCircle size={16} />
+          Nuevo pedido
+        </Link>
+      </div>
+
+      {/* Tabla */}
+      {shipments.length === 0 ? (
+        <div className="text-center py-16 bg-white rounded-xl border">
+          <p className="text-gray-400 text-sm">No hay pedidos cargados todavía.</p>
+          <Link
+            href="/orders/new"
+            className="mt-4 inline-flex items-center gap-1 text-blue-600 hover:underline text-sm"
+          >
+            <PlusCircle size={14} /> Cargar el primero
+          </Link>
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl border overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 border-b">
+                  <th className="text-left px-4 py-3 font-medium text-gray-500">Pedido</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-500">Destinatario</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-500 hidden md:table-cell">Logística</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-500">Estado</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-500 hidden lg:table-cell">Cargado por</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-500 hidden lg:table-cell">Hace</th>
+                  <th className="px-4 py-3"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {shipments.map((s) => {
+                  const isMyOrder =
+                    s.requestedBy?.name === session?.user?.name ||
+                    s.createdBy?.name === session?.user?.name;
+
+                  return (
+                    <tr
+                      key={s.id}
+                      className={`hover:bg-gray-50 transition-colors ${
+                        isMyOrder ? "bg-blue-50/30" : ""
+                      }`}
+                    >
+                      {/* Pedido */}
+                      <td className="px-4 py-3">
+                        <div className="font-medium text-gray-900">
+                          {s.orderNumber ? `#${s.orderNumber}` : "—"}
+                        </div>
+                        {isMyOrder && (
+                          <span className="text-xs text-blue-500 font-medium">mi pedido</span>
+                        )}
+                      </td>
+
+                      {/* Destinatario */}
+                      <td className="px-4 py-3">
+                        <div className="font-medium text-gray-900">{s.recipientName}</div>
+                        <div className="text-gray-400 text-xs">
+                          {s.city}, {s.province}
+                        </div>
+                      </td>
+
+                      {/* Logística */}
+                      <td className="px-4 py-3 hidden md:table-cell">
+                        {s.logisticsCompany ? (
+                          <span
+                            className={`inline-flex items-center text-xs font-medium px-2 py-0.5 rounded-full ${
+                              s.logisticsCompany.isInternal
+                                ? "bg-green-50 text-green-700"
+                                : "bg-purple-50 text-purple-700"
+                            }`}
+                          >
+                            {s.logisticsCompany.name}
+                          </span>
+                        ) : (
+                          <span className="text-gray-300 text-xs">Sin asignar</span>
+                        )}
+                      </td>
+
+                      {/* Estado */}
+                      <td className="px-4 py-3">
+                        <span
+                          className={`inline-flex items-center text-xs font-medium px-2.5 py-1 rounded-full ${
+                            STATUS_COLORS[s.status] ?? "bg-gray-100 text-gray-600"
+                          }`}
+                        >
+                          {STATUS_LABELS[s.status] ?? s.status}
+                        </span>
+                      </td>
+
+                      {/* Cargado por */}
+                      <td className="px-4 py-3 hidden lg:table-cell text-gray-500 text-xs">
+                        {s.requestedBy?.name ?? s.createdBy?.name ?? "—"}
+                      </td>
+
+                      {/* Hace cuánto */}
+                      <td className="px-4 py-3 hidden lg:table-cell text-gray-400 text-xs">
+                        {formatDistanceToNow(new Date(s.createdAt), {
+                          addSuffix: true,
+                          locale: es,
+                        })}
+                      </td>
+
+                      {/* Acciones */}
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2 justify-end">
+                          {s.externalTrackingUrl && (
+                            <a
+                              href={s.externalTrackingUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-1 text-xs text-purple-600 hover:underline font-medium"
+                              title="Seguir envío en logística externa"
+                            >
+                              <ExternalLink size={13} />
+                              Seguir
+                            </a>
+                          )}
+                          <a
+                            href={`/tracking/${s.trackingToken}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-blue-500 hover:underline"
+                          >
+                            Tracking
+                          </a>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Leyenda */}
+      <p className="text-xs text-gray-400 mt-4 text-center">
+        Las filas con fondo azul claro son pedidos que vos cargaste.
+      </p>
+    </div>
+  );
+}
