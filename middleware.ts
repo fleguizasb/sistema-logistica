@@ -28,12 +28,12 @@ export default auth((req) => {
 
   const role = session?.user?.role;
 
-  // Ya autenticado → redirigir lejos del login
-  if (isLoginPage) {
+  // Ya autenticado → redirigir lejos del login o de la raíz "/"
+  if (isLoginPage || path === "/") {
     if (role === "MANAGER") return NextResponse.redirect(new URL("/dashboard", req.url));
     if (role === "DRIVER") return NextResponse.redirect(new URL("/assignments", req.url));
     if (role === "SOLICITANTE") return NextResponse.redirect(new URL("/orders", req.url));
-    return NextResponse.redirect(new URL("/", req.url));
+    return NextResponse.redirect(new URL("/login", req.url));
   }
 
   // ─── Rutas del gestor ─────────────────────────────────────────────────────
