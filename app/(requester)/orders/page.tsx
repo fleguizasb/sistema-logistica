@@ -2,7 +2,25 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import Link from "next/link";
 import { PlusCircle, ExternalLink } from "lucide-react";
-import { STATUS_LABELS, STATUS_COLORS } from "@/lib/constants/shipment-status";
+const STATUS_LABELS: Record<string, string> = {
+  EN_PREPARACION:    "En preparación",
+  LISTO_PARA_ENVIAR: "Listo para enviar",
+  ASIGNADO_CHOFER:   "Asignado a chofer",
+  EN_CAMINO:         "En camino",
+  ENTREGADO:         "Entregado",
+  INCIDENCIA:        "Incidencia",
+  CANCELADO:         "Cancelado",
+};
+
+const STATUS_COLORS: Record<string, string> = {
+  EN_PREPARACION:    "bg-gray-100 text-gray-600",
+  LISTO_PARA_ENVIAR: "bg-blue-100 text-blue-700",
+  ASIGNADO_CHOFER:   "bg-indigo-100 text-indigo-700",
+  EN_CAMINO:         "bg-yellow-100 text-yellow-700",
+  ENTREGADO:         "bg-green-100 text-green-700",
+  INCIDENCIA:        "bg-red-100 text-red-700",
+  CANCELADO:         "bg-gray-200 text-gray-500",
+};
 
 function timeAgo(date: Date): string {
   const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
