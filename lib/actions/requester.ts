@@ -75,6 +75,7 @@ export async function createShipmentAsRequester(data: {
   postalCode?: string;
   products?: string;
   notes?: string;
+  logisticsCompanyId?: string; // override manual; si no se pasa, se resuelve automáticamente
 }) {
   const session = await auth();
 
@@ -91,13 +92,15 @@ export async function createShipmentAsRequester(data: {
   if (!data.city?.trim()) throw new Error("La ciudad es obligatoria");
   if (!data.province?.trim()) throw new Error("La provincia es obligatoria");
 
-  // Resolver empresa logística automáticamente
-  const logisticsCompanyId = await resolveLogisticsCompany({
-    postalCode: data.postalCode?.trim(),
-    city: data.city.trim(),
-    province: data.province.trim(),
-    products: data.products?.trim() || null,
-  });
+  // Resolver empresa logística: usa el override manual si se proporcionó, sino resuelve automáticamente
+  const logisticsCompanyId = data.logisticsCompanyId?.trim()
+    ? data.logisticsCompanyId.trim()
+    : await resolveLogisticsCompany({
+        postalCode: data.postalCode?.trim(),
+        city: data.city.trim(),
+        province: data.province.trim(),
+        products: data.products?.trim() || null,
+      });
 
   const shipment = await prisma.shipment.create({
     data: {

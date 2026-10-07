@@ -1,7 +1,7 @@
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import Link from "next/link";
-import { PlusCircle, ExternalLink } from "lucide-react";
+import { PlusCircle, ExternalLink, Copy } from "lucide-react";
 const STATUS_LABELS: Record<string, string> = {
   EN_PREPARACION:    "En preparación",
   LISTO_PARA_ENVIAR: "Listo para enviar",
@@ -114,6 +114,7 @@ export default async function OrdersPage() {
                   <th className="text-left px-4 py-3 font-medium text-gray-500">Estado</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-500 hidden lg:table-cell">Cargado por</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-500 hidden lg:table-cell">Hace</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-500 hidden md:table-cell">Seguimiento</th>
                   <th className="px-4 py-3"></th>
                 </tr>
               </thead>
@@ -186,30 +187,42 @@ export default async function OrdersPage() {
                         {timeAgo(new Date(s.createdAt))}
                       </td>
 
+                      {/* Tracking externo */}
+                      <td className="px-4 py-3 hidden md:table-cell">
+                        {s.externalTrackingCode || s.externalTrackingUrl ? (
+                          <div className="flex flex-col gap-0.5">
+                            {s.externalTrackingCode && (
+                              <span className="font-mono text-xs text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded">
+                                {s.externalTrackingCode}
+                              </span>
+                            )}
+                            {s.externalTrackingUrl && (
+                              <a
+                                href={s.externalTrackingUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-1 text-xs text-purple-600 hover:underline font-medium"
+                              >
+                                <ExternalLink size={11} />
+                                Seguir envío
+                              </a>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-gray-300 text-xs">—</span>
+                        )}
+                      </td>
+
                       {/* Acciones */}
                       <td className="px-4 py-3">
-                        <div className="flex items-center gap-2 justify-end">
-                          {s.externalTrackingUrl && (
-                            <a
-                              href={s.externalTrackingUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex items-center gap-1 text-xs text-purple-600 hover:underline font-medium"
-                              title="Seguir envío en logística externa"
-                            >
-                              <ExternalLink size={13} />
-                              Seguir
-                            </a>
-                          )}
-                          <a
-                            href={`/tracking/${s.trackingToken}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-xs text-blue-500 hover:underline"
-                          >
-                            Tracking
-                          </a>
-                        </div>
+                        <a
+                          href={`/tracking/${s.trackingToken}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-blue-500 hover:underline"
+                        >
+                          Tracking
+                        </a>
                       </td>
                     </tr>
                   );
