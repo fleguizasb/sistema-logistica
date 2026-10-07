@@ -5,46 +5,63 @@ import { auth } from "@/auth";
 import { revalidatePath } from "next/cache";
 import { ShipmentSource } from "@prisma/client";
 
-// Busca la empresa logística que corresponde según reglas de ruteo.
-// Prioridad: código postal > ciudad > provincia.
-// Dentro de cada tipo, gana la regla con mayor `priority`.
+// Prefijos de SKU que van con Procourrier (si el código postal está en su zona)
+const PROCOURRIER_SKU_PREFIXES = ["ASB", "CSB", "CCA", "CPI", "ESB", "FSB", "PSB", "SSB", "TCH", "TDA"];
+
+// Detecta si algún producto en el string tiene prefijo de Procourrier.
+// Soporta formatos: "ASB-XXX", "Nombre (SKU: ASB-XXX)", lista con comas, etc.
+function hasProcouirrierSku(products?: string | null): boolean {
+  if (!products) return false;
+  const upper = products.toUpperCase();
+  return PROCOURRIER_SKU_PREFIXES.some((prefix) =>
+    new RegExp(`(?:^|[\\s,;(|])${prefix}[-_]`).test(upper)
+  );
+}
+
+// Resuelve qué empresa logística corresponde a un pedido.
+// Lógica en orden de prioridad:
+//   1. SKU Procourrier + código postal en zona Procourrier → Procourrier
+//   2. SKU distinto   + código postal en zona Flota Propia → Flota Propia
+//   3. Default                                             → Enviopack
 async function resolveLogisticsCompany(params: {
   postalCode?: string;
   city?: string;
   province?: string;
+  products?: string | null;
 }): Promise<string | null> {
-  const rules = await prisma.routingRule.findMany({
-    where: { active: true },
-    orderBy: { priority: "desc" },
-    include: { logisticsCompany: { select: { id: true, active: true } } },
-  });
+  const isProcouirrierSku = hasProcouirrierSku(params.products);
 
-  for (const rule of rules) {
-    if (!rule.logisticsCompany.active) continue;
+  if (params.postalCode) {
+    // Traer todas las reglas de código postal de una sola query
+    const rules = await prisma.routingRule.findMany({
+      where: { active: true, type: "POSTAL_CODE" },
+      orderBy: { priority: "desc" },
+      include: {
+        logisticsCompany: { select: { id: true, name: true, active: true } },
+      },
+    });
 
-    if (rule.type === "POSTAL_CODE" && params.postalCode) {
-      if (params.postalCode.startsWith(rule.pattern)) {
-        return rule.logisticsCompanyId;
-      }
-    }
-    if (rule.type === "CITY" && params.city) {
-      if (params.city.toLowerCase().includes(rule.pattern.toLowerCase())) {
-        return rule.logisticsCompanyId;
-      }
-    }
-    if (rule.type === "PROVINCE" && params.province) {
-      if (params.province.toLowerCase().includes(rule.pattern.toLowerCase())) {
-        return rule.logisticsCompanyId;
-      }
+    const matched = rules.filter(
+      (r) => r.logisticsCompany.active && params.postalCode!.startsWith(r.pattern)
+    );
+
+    if (isProcouirrierSku) {
+      // Condición 1: SKU Procourrier + CP en zona Procourrier
+      const rule = matched.find((r) => r.logisticsCompany.name === "Procourrier");
+      if (rule) return rule.logisticsCompanyId;
+    } else {
+      // Condición 2: SKU distinto + CP en zona Flota Propia
+      const rule = matched.find((r) => r.logisticsCompany.name === "Flota Propia");
+      if (rule) return rule.logisticsCompanyId;
     }
   }
 
-  // Sin regla que coincida → buscar empresa interna como fallback
-  const internal = await prisma.logisticsCompany.findFirst({
-    where: { isInternal: true, active: true },
+  // Default: Enviopack
+  const enviopack = await prisma.logisticsCompany.findFirst({
+    where: { name: "Enviopack", active: true },
     select: { id: true },
   });
-  return internal?.id ?? null;
+  return enviopack?.id ?? null;
 }
 
 export async function createShipmentAsRequester(data: {
@@ -74,11 +91,12 @@ export async function createShipmentAsRequester(data: {
   if (!data.city?.trim()) throw new Error("La ciudad es obligatoria");
   if (!data.province?.trim()) throw new Error("La provincia es obligatoria");
 
-  // Resolver empresa logística automáticamente por reglas de ruteo
+  // Resolver empresa logística automáticamente
   const logisticsCompanyId = await resolveLogisticsCompany({
     postalCode: data.postalCode?.trim(),
     city: data.city.trim(),
     province: data.province.trim(),
+    products: data.products?.trim() || null,
   });
 
   const shipment = await prisma.shipment.create({
