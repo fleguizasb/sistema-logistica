@@ -1,6 +1,7 @@
 import { Header } from "@/components/manager/header";
 import { getShipmentById } from "@/lib/actions/shipments";
 import { ShipmentDetail } from "@/components/manager/shipments/shipment-detail";
+import { LogisticsSection } from "@/components/manager/logistics-section";
 import { notFound } from "next/navigation";
 
 export const metadata = { title: "Detalle de envío — Sistema Logístico" };
@@ -18,6 +19,10 @@ export default async function ShipmentDetailPage({ params }: PageProps) {
     <>
       <Header title="Detalle de envío" />
       <ShipmentDetail shipment={shipment} />
+      <LogisticsSection
+        shipmentId={shipment.id}
+        logisticsCompanyId={shipment.logisticsCompanyId ?? null}
+      />
     </>
   );
 }
