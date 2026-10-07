@@ -12,6 +12,7 @@ import {
   Truck,
   ShieldCheck,
   UserCircle,
+  Building2,
 } from "lucide-react";
 
 const baseNavigation = [
@@ -20,6 +21,7 @@ const baseNavigation = [
   { label: "Etiquetas", href: "/labels", icon: Printer },
   { label: "Incidencias", href: "/incidents", icon: AlertTriangle },
   { label: "Choferes", href: "/drivers", icon: Users },
+  { label: "Logística", href: "/logistics", icon: Building2 },
 ];
 
 const ownerNavigation = [
