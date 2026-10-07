@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { Sidebar } from "@/components/manager/sidebar";
+import { SessionProvider } from "next-auth/react";
 
 export default async function ManagerLayout({
   children,
@@ -16,11 +17,13 @@ export default async function ManagerLayout({
   const isOwner = session.user.isOwner ?? false;
 
   return (
-    <div className="flex h-screen overflow-hidden bg-gray-50">
-      <Sidebar isOwner={isOwner} />
-      <main className="flex-1 flex flex-col min-w-0 overflow-auto">
-        {children}
-      </main>
-    </div>
+    <SessionProvider session={session}>
+      <div className="flex h-screen overflow-hidden bg-gray-50">
+        <Sidebar isOwner={isOwner} />
+        <main className="flex-1 flex flex-col min-w-0 overflow-auto">
+          {children}
+        </main>
+      </div>
+    </SessionProvider>
   );
 }
