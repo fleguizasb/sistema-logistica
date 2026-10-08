@@ -3,7 +3,7 @@
 import { useState, useTransition, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { createShipmentAsRequester } from "@/lib/actions/requester";
-import { Loader2, X, Plus, ChevronDown, ChevronUp, Search } from "lucide-react";
+import { Loader2, X, Plus, ChevronDown, ChevronUp, Search, ClipboardPaste, CheckCircle2 } from "lucide-react";
 
 // ─── Catálogo de productos ───────────────────────────────────────────────────
 const PRODUCT_CATALOG: { sku: string; group: string }[] = [
@@ -114,6 +114,95 @@ const PRODUCT_CATALOG: { sku: string; group: string }[] = [
 const ALL_GROUPS = Array.from(new Set(PRODUCT_CATALOG.map((p) => p.group)));
 // ────────────────────────────────────────────────────────────────────────────
 
+// ─── Parser de datos del cliente ────────────────────────────────────────────
+interface ParsedData {
+  recipientName: string;
+  dni: string;
+  addressLine: string;
+  city: string;
+  postalCode: string;
+  recipientPhone: string;
+  email: string;
+}
+
+function parseCustomerText(raw: string): ParsedData {
+  const result: ParsedData = {
+    recipientName: "",
+    dni: "",
+    addressLine: "",
+    city: "",
+    postalCode: "",
+    recipientPhone: "",
+    email: "",
+  };
+
+  const lines = raw.split("\n").map((l) => l.trim()).filter(Boolean);
+
+  // Intentar detectar formato con etiquetas
+  // Acepta: "NOMBRE Y APELLIDO Juan" / "NOMBRE Y APELLIDO: Juan" / "NOMBRE Y APELLIDO  Juan"
+  function extractLabel(text: string, patterns: RegExp[]): string {
+    for (const p of patterns) {
+      const m = text.match(p);
+      if (m && m[1]?.trim()) return m[1].trim();
+    }
+    return "";
+  }
+
+  const fullText = lines.join("\n");
+
+  const nombre = extractLabel(fullText, [
+    /NOMBRE\s+Y\s+APELLIDO\s*[:\-]?\s*(.+)/i,
+    /NOMBRE\s*[:\-]\s*(.+)/i,
+  ]);
+  const dni = extractLabel(fullText, [/DNI\s*[:\-]?\s*(.+)/i]);
+  const direccion = extractLabel(fullText, [
+    /DIRECCI[OÓ]N\s*[:\-]?\s*(.+)/i,
+    /DOMICILIO\s*[:\-]?\s*(.+)/i,
+  ]);
+  const localidad = extractLabel(fullText, [
+    /LOCALIDAD\s*[:\-]?\s*(.+)/i,
+    /CIUDAD\s*[:\-]?\s*(.+)/i,
+  ]);
+  const cp = extractLabel(fullText, [
+    /C[OÓ]DIGO\s+POSTAL\s*[:\-]?\s*(.+)/i,
+    /CP\s*[:\-]?\s*(\d+)/i,
+    /POSTAL\s*[:\-]?\s*(.+)/i,
+  ]);
+  const telefono = extractLabel(fullText, [
+    /TEL[EÉ]FONO\s*[:\-]?\s*(.+)/i,
+    /CEL(?:ULAR)?\s*[:\-]?\s*(.+)/i,
+    /TEL\s*[:\-]?\s*(.+)/i,
+  ]);
+  const email = extractLabel(fullText, [
+    /E?-?MAIL\s*[:\-]?\s*(.+)/i,
+    /CORREO\s*[:\-]?\s*(.+)/i,
+  ]);
+
+  const hasLabels = nombre || dni || direccion || localidad || cp || telefono || email;
+
+  if (hasLabels) {
+    result.recipientName = nombre;
+    result.dni = dni;
+    result.addressLine = direccion;
+    result.city = localidad;
+    result.postalCode = cp;
+    result.recipientPhone = telefono;
+    result.email = email;
+  } else {
+    // Sin etiquetas → posicional: nombre, DNI, dirección, localidad, CP, teléfono, email
+    if (lines[0]) result.recipientName = lines[0];
+    if (lines[1]) result.dni = lines[1];
+    if (lines[2]) result.addressLine = lines[2];
+    if (lines[3]) result.city = lines[3];
+    if (lines[4]) result.postalCode = lines[4];
+    if (lines[5]) result.recipientPhone = lines[5];
+    if (lines[6]) result.email = lines[6];
+  }
+
+  return result;
+}
+// ────────────────────────────────────────────────────────────────────────────
+
 interface LogisticsCompany {
   id: string;
   name: string;
@@ -130,10 +219,50 @@ export default function NewOrderForm({ userId, companies }: Props) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  // Logística
+  // ── Campos del formulario (controlados para poder autocompletar) ──────────
+  const [recipientName, setRecipientName] = useState("");
+  const [recipientPhone, setRecipientPhone] = useState("");
+  const [addressLine, setAddressLine] = useState("");
+  const [addressExtra, setAddressExtra] = useState("");
+  const [city, setCity] = useState("");
+  const [province, setProvince] = useState("");
+  const [postalCode, setPostalCode] = useState("");
+  const [notes, setNotes] = useState("");
+  const [orderNumber, setOrderNumber] = useState("");
+
+  // ── Pegar datos ───────────────────────────────────────────────────────────
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteText, setPasteText] = useState("");
+  const [parsedOk, setParsedOk] = useState(false);
+
+  function handleAutofill() {
+    if (!pasteText.trim()) return;
+    const parsed = parseCustomerText(pasteText);
+    if (parsed.recipientName) setRecipientName(parsed.recipientName);
+    if (parsed.recipientPhone) setRecipientPhone(parsed.recipientPhone);
+    if (parsed.addressLine) setAddressLine(parsed.addressLine);
+    if (parsed.city) setCity(parsed.city);
+    if (parsed.postalCode) setPostalCode(parsed.postalCode);
+
+    // DNI y email van a las notas
+    const extras: string[] = [];
+    if (parsed.dni) extras.push(`DNI: ${parsed.dni}`);
+    if (parsed.email) extras.push(`Email: ${parsed.email}`);
+    if (extras.length > 0) {
+      setNotes((prev) => (prev ? `${prev}\n${extras.join(" | ")}` : extras.join(" | ")));
+    }
+
+    setParsedOk(true);
+    setTimeout(() => {
+      setParsedOk(false);
+      setPasteOpen(false);
+    }, 1500);
+  }
+
+  // ── Logística ─────────────────────────────────────────────────────────────
   const [logisticsCompanyId, setLogisticsCompanyId] = useState<string>("");
 
-  // Picker de productos
+  // ── Picker de productos ───────────────────────────────────────────────────
   const [pickerOpen, setPickerOpen] = useState(false);
   const [activeGroup, setActiveGroup] = useState<string>(ALL_GROUPS[0]);
   const [search, setSearch] = useState("");
@@ -141,7 +270,6 @@ export default function NewOrderForm({ userId, companies }: Props) {
   const [customProduct, setCustomProduct] = useState("");
   const [customProducts, setCustomProducts] = useState<string[]>([]);
 
-  // Filtrar catálogo
   const filteredItems = useMemo(() => {
     if (search.trim()) {
       return PRODUCT_CATALOG.filter((p) =>
@@ -176,24 +304,21 @@ export default function NewOrderForm({ userId, companies }: Props) {
     e.preventDefault();
     setError(null);
 
-    const fd = new FormData(e.currentTarget);
-    const data = {
-      orderNumber: fd.get("orderNumber") as string,
-      recipientName: fd.get("recipientName") as string,
-      recipientPhone: fd.get("recipientPhone") as string,
-      addressLine: fd.get("addressLine") as string,
-      addressExtra: fd.get("addressExtra") as string,
-      city: fd.get("city") as string,
-      province: fd.get("province") as string,
-      postalCode: fd.get("postalCode") as string,
-      products: buildProductsString(),
-      notes: fd.get("notes") as string,
-      logisticsCompanyId: logisticsCompanyId || undefined,
-    };
-
     startTransition(async () => {
       try {
-        await createShipmentAsRequester(data);
+        await createShipmentAsRequester({
+          orderNumber,
+          recipientName,
+          recipientPhone,
+          addressLine,
+          addressExtra,
+          city,
+          province,
+          postalCode,
+          products: buildProductsString(),
+          notes,
+          logisticsCompanyId: logisticsCompanyId || undefined,
+        });
         router.push("/orders");
       } catch (err: any) {
         setError(err.message ?? "Error al crear el pedido");
@@ -206,334 +331,400 @@ export default function NewOrderForm({ userId, companies }: Props) {
   const totalSelected = selectedSkus.length + customProducts.length;
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="bg-white rounded-xl border p-6 space-y-5"
-    >
-      {/* Número de pedido */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Número de pedido / orden
-        </label>
-        <input
-          name="orderNumber"
-          type="text"
-          className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          placeholder="ej. 12345"
-        />
-      </div>
+    <form onSubmit={handleSubmit} className="space-y-5">
 
-      {/* Destinatario */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Nombre del destinatario <span className="text-red-500">*</span>
-          </label>
-          <input
-            name="recipientName"
-            type="text"
-            required
-            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            placeholder="Nombre y apellido"
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Teléfono
-          </label>
-          <input
-            name="recipientPhone"
-            type="tel"
-            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            placeholder="11 1234-5678"
-          />
-        </div>
-      </div>
-
-      {/* Dirección */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Dirección <span className="text-red-500">*</span>
-        </label>
-        <input
-          name="addressLine"
-          type="text"
-          required
-          className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          placeholder="Calle y número"
-        />
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Piso / Dpto / Referencia
-        </label>
-        <input
-          name="addressExtra"
-          type="text"
-          className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          placeholder="ej. 2° B"
-        />
-      </div>
-
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-        <div className="col-span-2 sm:col-span-1">
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Ciudad <span className="text-red-500">*</span>
-          </label>
-          <input
-            name="city"
-            type="text"
-            required
-            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            placeholder="ej. Buenos Aires"
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Provincia <span className="text-red-500">*</span>
-          </label>
-          <input
-            name="province"
-            type="text"
-            required
-            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            placeholder="ej. CABA"
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Código postal
-          </label>
-          <input
-            name="postalCode"
-            type="text"
-            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            placeholder="ej. 1001"
-          />
-        </div>
-      </div>
-
-      {/* ── Picker de productos ───────────────────────────────────────────── */}
-      <div className="border rounded-xl overflow-hidden">
-        {/* Header */}
+      {/* ── Pegar datos del cliente ────────────────────────────────────────── */}
+      <div className="bg-blue-50 border border-blue-200 rounded-xl overflow-hidden">
         <button
           type="button"
-          onClick={() => setPickerOpen((v) => !v)}
-          className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors text-left"
+          onClick={() => { setPasteOpen((v) => !v); setParsedOk(false); }}
+          className="w-full flex items-center justify-between px-4 py-3 hover:bg-blue-100 transition-colors text-left"
         >
-          <span className="text-sm font-medium text-gray-700">
-            Productos del pedido
-            {totalSelected > 0 && (
-              <span className="ml-2 bg-blue-100 text-blue-700 text-xs font-semibold px-2 py-0.5 rounded-full">
-                {totalSelected}
-              </span>
-            )}
-          </span>
-          {pickerOpen ? (
-            <ChevronUp size={16} className="text-gray-400" />
+          <div className="flex items-center gap-2">
+            <ClipboardPaste size={16} className="text-blue-600" />
+            <span className="text-sm font-medium text-blue-800">
+              Pegar datos del cliente
+            </span>
+            <span className="text-xs text-blue-500">
+              — autocompletar desde texto
+            </span>
+          </div>
+          {pasteOpen ? (
+            <ChevronUp size={16} className="text-blue-400" />
           ) : (
-            <ChevronDown size={16} className="text-gray-400" />
+            <ChevronDown size={16} className="text-blue-400" />
           )}
         </button>
 
-        {pickerOpen && (
-          <div className="border-t">
-            {/* Buscador */}
-            <div className="px-4 pt-3 pb-2">
-              <div className="relative">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input
-                  type="text"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Buscar SKU..."
-                  className="w-full pl-8 pr-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+        {pasteOpen && (
+          <div className="border-t border-blue-200 px-4 py-3 space-y-3 bg-white">
+            <p className="text-xs text-gray-500">
+              Pegá el texto que te mandó el cliente. Funciona con o sin etiquetas.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-gray-400">
+              <div className="bg-gray-50 rounded-lg p-2.5 font-mono whitespace-pre leading-relaxed">
+{`Con etiquetas:
+NOMBRE Y APELLIDO Juan Pérez
+DNI 30123456
+DIRECCION Av. Corrientes 1234
+LOCALIDAD Buenos Aires
+CODIGO POSTAL 1043
+TELEFONO 11 1234-5678
+EMAIL juan@mail.com`}
+              </div>
+              <div className="bg-gray-50 rounded-lg p-2.5 font-mono whitespace-pre leading-relaxed">
+{`Sin etiquetas:
+Juan Pérez
+30123456
+Av. Corrientes 1234
+Buenos Aires
+1043
+11 1234-5678
+juan@mail.com`}
               </div>
             </div>
-
-            {/* Tabs de familias — solo si no hay búsqueda */}
-            {!search.trim() && (
-              <div className="px-4 pb-2 flex gap-1 flex-wrap">
-                {ALL_GROUPS.map((g) => (
-                  <button
-                    key={g}
-                    type="button"
-                    onClick={() => setActiveGroup(g)}
-                    className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
-                      activeGroup === g
-                        ? "bg-gray-900 text-white"
-                        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                    }`}
-                  >
-                    {g}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {/* Lista de SKUs */}
-            <div className="px-4 pb-3 flex flex-wrap gap-1.5 max-h-40 overflow-y-auto">
-              {filteredItems.length === 0 ? (
-                <p className="text-xs text-gray-400 py-2">Sin resultados</p>
+            <textarea
+              value={pasteText}
+              onChange={(e) => setPasteText(e.target.value)}
+              rows={6}
+              className="w-full border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+              placeholder="Pegá el texto acá..."
+            />
+            <button
+              type="button"
+              onClick={handleAutofill}
+              disabled={!pasteText.trim()}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 ${
+                parsedOk
+                  ? "bg-green-600 text-white"
+                  : "bg-blue-600 hover:bg-blue-700 text-white"
+              }`}
+            >
+              {parsedOk ? (
+                <>
+                  <CheckCircle2 size={15} />
+                  ¡Listo! Formulario completado
+                </>
               ) : (
-                filteredItems.map((p) => {
-                  const selected = selectedSkus.includes(p.sku);
-                  return (
+                <>
+                  <ClipboardPaste size={15} />
+                  Autocompletar formulario
+                </>
+              )}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* ── Formulario principal ───────────────────────────────────────────── */}
+      <div className="bg-white rounded-xl border p-6 space-y-5">
+
+        {/* Número de pedido */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Número de pedido / orden
+          </label>
+          <input
+            type="text"
+            value={orderNumber}
+            onChange={(e) => setOrderNumber(e.target.value)}
+            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="ej. 12345"
+          />
+        </div>
+
+        {/* Destinatario */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Nombre y apellido <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              required
+              value={recipientName}
+              onChange={(e) => setRecipientName(e.target.value)}
+              className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Nombre y apellido"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Teléfono
+            </label>
+            <input
+              type="tel"
+              value={recipientPhone}
+              onChange={(e) => setRecipientPhone(e.target.value)}
+              className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="11 1234-5678"
+            />
+          </div>
+        </div>
+
+        {/* Dirección */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Dirección <span className="text-red-500">*</span>
+          </label>
+          <input
+            type="text"
+            required
+            value={addressLine}
+            onChange={(e) => setAddressLine(e.target.value)}
+            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="Calle y número"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Piso / Dpto / Referencia
+          </label>
+          <input
+            type="text"
+            value={addressExtra}
+            onChange={(e) => setAddressExtra(e.target.value)}
+            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="ej. 2° B"
+          />
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+          <div className="col-span-2 sm:col-span-1">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Ciudad <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              required
+              value={city}
+              onChange={(e) => setCity(e.target.value)}
+              className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="ej. Buenos Aires"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Provincia <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              required
+              value={province}
+              onChange={(e) => setProvince(e.target.value)}
+              className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="ej. CABA"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Código postal
+            </label>
+            <input
+              type="text"
+              value={postalCode}
+              onChange={(e) => setPostalCode(e.target.value)}
+              className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="ej. 1001"
+            />
+          </div>
+        </div>
+
+        {/* ── Picker de productos ──────────────────────────────────────────── */}
+        <div className="border rounded-xl overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setPickerOpen((v) => !v)}
+            className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors text-left"
+          >
+            <span className="text-sm font-medium text-gray-700">
+              Productos del pedido
+              {totalSelected > 0 && (
+                <span className="ml-2 bg-blue-100 text-blue-700 text-xs font-semibold px-2 py-0.5 rounded-full">
+                  {totalSelected}
+                </span>
+              )}
+            </span>
+            {pickerOpen ? (
+              <ChevronUp size={16} className="text-gray-400" />
+            ) : (
+              <ChevronDown size={16} className="text-gray-400" />
+            )}
+          </button>
+
+          {pickerOpen && (
+            <div className="border-t">
+              <div className="px-4 pt-3 pb-2">
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="text"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Buscar SKU..."
+                    className="w-full pl-8 pr-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+              {!search.trim() && (
+                <div className="px-4 pb-2 flex gap-1 flex-wrap">
+                  {ALL_GROUPS.map((g) => (
                     <button
-                      key={p.sku}
+                      key={g}
                       type="button"
-                      onClick={() => toggleSku(p.sku)}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-mono font-medium border transition-colors ${
-                        selected
-                          ? "bg-blue-600 text-white border-blue-600"
-                          : "bg-white text-gray-700 border-gray-200 hover:border-blue-400 hover:text-blue-600"
+                      onClick={() => setActiveGroup(g)}
+                      className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                        activeGroup === g
+                          ? "bg-gray-900 text-white"
+                          : "bg-gray-100 text-gray-600 hover:bg-gray-200"
                       }`}
                     >
-                      {p.sku}
+                      {g}
                     </button>
-                  );
-                })
+                  ))}
+                </div>
               )}
-            </div>
-
-            {/* Agregar manual */}
-            <div className="px-4 py-3 border-t bg-gray-50">
-              <p className="text-xs text-gray-500 mb-2">O agregá un producto manualmente:</p>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={customProduct}
-                  onChange={(e) => setCustomProduct(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      addCustomProduct();
-                    }
-                  }}
-                  className="flex-1 border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="ej. Camiseta talle M"
-                />
-                <button
-                  type="button"
-                  onClick={addCustomProduct}
-                  className="flex items-center gap-1 px-3 py-1.5 bg-gray-900 text-white text-sm rounded-lg hover:bg-gray-800 transition-colors whitespace-nowrap"
-                >
-                  <Plus size={13} />
-                  Agregar
-                </button>
+              <div className="px-4 pb-3 flex flex-wrap gap-1.5 max-h-40 overflow-y-auto">
+                {filteredItems.length === 0 ? (
+                  <p className="text-xs text-gray-400 py-2">Sin resultados</p>
+                ) : (
+                  filteredItems.map((p) => {
+                    const selected = selectedSkus.includes(p.sku);
+                    return (
+                      <button
+                        key={p.sku}
+                        type="button"
+                        onClick={() => toggleSku(p.sku)}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-mono font-medium border transition-colors ${
+                          selected
+                            ? "bg-blue-600 text-white border-blue-600"
+                            : "bg-white text-gray-700 border-gray-200 hover:border-blue-400 hover:text-blue-600"
+                        }`}
+                      >
+                        {p.sku}
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+              <div className="px-4 py-3 border-t bg-gray-50">
+                <p className="text-xs text-gray-500 mb-2">O agregá un producto manualmente:</p>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={customProduct}
+                    onChange={(e) => setCustomProduct(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") { e.preventDefault(); addCustomProduct(); }
+                    }}
+                    className="flex-1 border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="ej. Camiseta talle M"
+                  />
+                  <button
+                    type="button"
+                    onClick={addCustomProduct}
+                    className="flex items-center gap-1 px-3 py-1.5 bg-gray-900 text-white text-sm rounded-lg hover:bg-gray-800 transition-colors whitespace-nowrap"
+                  >
+                    <Plus size={13} /> Agregar
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
+          )}
+
+          {totalSelected > 0 && (
+            <div className="px-4 py-3 border-t flex flex-wrap gap-2">
+              {selectedSkus.map((sku) => (
+                <span
+                  key={sku}
+                  className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 text-xs font-mono font-medium px-2.5 py-1 rounded-full"
+                >
+                  {sku}
+                  <button type="button" onClick={() => toggleSku(sku)} className="ml-0.5 hover:text-blue-900">
+                    <X size={11} />
+                  </button>
+                </span>
+              ))}
+              {customProducts.map((p, i) => (
+                <span
+                  key={i}
+                  className="inline-flex items-center gap-1 bg-gray-100 text-gray-700 text-xs font-medium px-2.5 py-1 rounded-full"
+                >
+                  {p}
+                  <button type="button" onClick={() => removeCustomProduct(i)} className="ml-0.5 hover:text-gray-900">
+                    <X size={11} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* ── Logística ────────────────────────────────────────────────────── */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Empresa logística
+          </label>
+          <select
+            value={logisticsCompanyId}
+            onChange={(e) => setLogisticsCompanyId(e.target.value)}
+            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">Asignar automáticamente (recomendado)</option>
+            {internalCompanies.length > 0 && (
+              <optgroup label="Flota propia">
+                {internalCompanies.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </optgroup>
+            )}
+            {externalCompanies.length > 0 && (
+              <optgroup label="Logísticas externas">
+                {externalCompanies.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+          <p className="text-xs text-gray-400 mt-1">
+            Se asigna automáticamente según código postal y productos. Podés sobreescribirlo.
+          </p>
+        </div>
+
+        {/* Observaciones */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Observaciones
+          </label>
+          <textarea
+            rows={2}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+            placeholder="Instrucciones especiales, horario de entrega..."
+          />
+        </div>
+
+        {error && (
+          <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-4 py-3">
+            {error}
+          </p>
         )}
 
-        {/* Chips de seleccionados */}
-        {totalSelected > 0 && (
-          <div className="px-4 py-3 border-t flex flex-wrap gap-2">
-            {selectedSkus.map((sku) => (
-              <span
-                key={sku}
-                className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 text-xs font-mono font-medium px-2.5 py-1 rounded-full"
-              >
-                {sku}
-                <button
-                  type="button"
-                  onClick={() => toggleSku(sku)}
-                  className="ml-0.5 hover:text-blue-900"
-                >
-                  <X size={11} />
-                </button>
-              </span>
-            ))}
-            {customProducts.map((p, i) => (
-              <span
-                key={i}
-                className="inline-flex items-center gap-1 bg-gray-100 text-gray-700 text-xs font-medium px-2.5 py-1 rounded-full"
-              >
-                {p}
-                <button
-                  type="button"
-                  onClick={() => removeCustomProduct(i)}
-                  className="ml-0.5 hover:text-gray-900"
-                >
-                  <X size={11} />
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* ── Logística ─────────────────────────────────────────────────────── */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Empresa logística
-        </label>
-        <select
-          value={logisticsCompanyId}
-          onChange={(e) => setLogisticsCompanyId(e.target.value)}
-          className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          <option value="">Asignar automáticamente (recomendado)</option>
-          {internalCompanies.length > 0 && (
-            <optgroup label="Flota propia">
-              {internalCompanies.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </optgroup>
-          )}
-          {externalCompanies.length > 0 && (
-            <optgroup label="Logísticas externas">
-              {externalCompanies.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </optgroup>
-          )}
-        </select>
-        <p className="text-xs text-gray-400 mt-1">
-          Se asigna automáticamente según código postal y productos. Podés sobreescribirlo.
-        </p>
-      </div>
-
-      {/* Observaciones */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Observaciones
-        </label>
-        <textarea
-          name="notes"
-          rows={2}
-          className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-          placeholder="Instrucciones especiales, horario de entrega..."
-        />
-      </div>
-
-      {error && (
-        <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-4 py-3">
-          {error}
-        </p>
-      )}
-
-      <div className="flex items-center gap-3 pt-2">
-        <button
-          type="submit"
-          disabled={isPending}
-          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-medium px-5 py-2.5 rounded-lg transition-colors text-sm"
-        >
-          {isPending && <Loader2 size={15} className="animate-spin" />}
-          Crear pedido
-        </button>
-        <a
-          href="/orders"
-          className="text-sm text-gray-500 hover:text-gray-700 transition-colors"
-        >
-          Cancelar
-        </a>
+        <div className="flex items-center gap-3 pt-2">
+          <button
+            type="submit"
+            disabled={isPending}
+            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-medium px-5 py-2.5 rounded-lg transition-colors text-sm"
+          >
+            {isPending && <Loader2 size={15} className="animate-spin" />}
+            Crear pedido
+          </button>
+          <a href="/orders" className="text-sm text-gray-500 hover:text-gray-700 transition-colors">
+            Cancelar
+          </a>
+        </div>
       </div>
     </form>
   );
